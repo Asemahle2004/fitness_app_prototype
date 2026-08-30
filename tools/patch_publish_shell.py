@@ -1,0 +1,11 @@
+from pathlib import Path
+p=Path('lib/main.dart')
+s=p.read_text()
+s=s.replace("import 'readiness_screen.dart';\nimport 'package:supabase_flutter/supabase_flutter.dart';", "import 'readiness_screen.dart';\nimport 'auth_gate.dart';\nimport 'lean_eat_theme.dart';\nimport 'package:supabase_flutter/supabase_flutter.dart';")
+s=s.replace("title: 'Fitness App',\n      theme: ThemeData(useMaterial3: true, fontFamily: 'Arial'),\n      home: const WelcomeScreen(),", "title: 'LeanEat',\n      theme: leanEatTheme(),\n      home: const LeanEatAuthGate(signedInHome: WelcomeScreen()),")
+s=s.replace("// Temporary logo\n              Container(\n                width: 90,\n                height: 90,\n                decoration: BoxDecoration(\n                  color: const Color(0xFF176B87),\n                  borderRadius: BorderRadius.circular(28),\n                ),\n                child: const Icon(\n                  Icons.fitness_center,\n                  size: 44,\n                  color: Colors.white,\n                ),\n              ),", "const LeanEatLogo(size: 82),")
+s=s.replace("'Train for your goal.'", "'Train smarter. Eat better.'")
+s=s.replace("'We plan the rest.'", "'LeanEat adapts with you.'")
+s=s.replace("'Get a personalised training programme for home, gym or running based on your goal, experience, equipment and schedule.'", "'Evidence-informed training, guided workouts, recovery checks and progress tracking — personalised to your goals, equipment, schedule and limitations.'")
+p.write_text(s)
+print('patched')
