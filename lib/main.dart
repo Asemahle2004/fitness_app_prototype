@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'programme_engine.dart';
 import 'workout_engine.dart';
 import 'exercise_repository.dart';
+import 'live_workout_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 Future<void> main() async {
@@ -3768,7 +3769,14 @@ class _WorkoutDetailScreenState extends State<WorkoutDetailScreen> {
                   onPressed: widget.hasLimitation
                       ? null
                       : () {
-                          // Live Workout Mode comes next.
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => LiveWorkoutScreen(
+                                workout: workout,
+                              ),
+                            ),
+                          );
                         },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF176B87),
