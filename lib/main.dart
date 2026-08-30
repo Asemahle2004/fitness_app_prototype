@@ -12,6 +12,7 @@ import 'readiness_screen.dart';
 import 'auth_gate.dart';
 import 'lean_eat_theme.dart';
 import 'profile_service.dart';
+import 'account_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 Future<void> main() async {
@@ -128,12 +129,15 @@ class WelcomeScreen extends StatelessWidget {
 
               const SizedBox(height: 18),
 
-              TextButton(
-                onPressed: () {},
-                child: const Text(
-                  'Already have an account? Sign in',
-                  style: TextStyle(color: Color(0xFF627D98)),
-                ),
+              TextButton.icon(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const LeanEatAccountScreen()),
+                  );
+                },
+                icon: const Icon(Icons.account_circle_outlined),
+                label: const Text('MY ACCOUNT'),
               ),
 
               const SizedBox(height: 10),
@@ -413,8 +417,6 @@ class _GoalSelectionScreenState extends State<GoalSelectionScreen> {
                       icon: const Icon(Icons.insights_outlined),
                       label: const Text('PROGRESS'),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF176B87),
-                        side: const BorderSide(color: Color(0xFFD9E2EC)),
                         minimumSize: const Size.fromHeight(50),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(16),
@@ -434,8 +436,25 @@ class _GoalSelectionScreenState extends State<GoalSelectionScreen> {
                       icon: const Icon(Icons.battery_charging_full_outlined),
                       label: const Text('READINESS'),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF176B87),
-                        side: const BorderSide(color: Color(0xFFD9E2EC)),
+                        minimumSize: const Size.fromHeight(50),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const LeanEatAccountScreen()),
+                        );
+                      },
+                      icon: const Icon(Icons.person_outline_rounded),
+                      label: const Text('ACCOUNT'),
+                      style: OutlinedButton.styleFrom(
                         minimumSize: const Size.fromHeight(50),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(16),
