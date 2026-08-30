@@ -1,0 +1,31 @@
+name: One-time exercise loader refactor
+
+on:
+  push:
+    paths:
+      - '.github/workflows/refactor-exercise-loader.yml'
+      - 'tools/refactor_exercise_loader.py'
+      - 'lib/exercise_repository.dart'
+
+permissions:
+  contents: write
+
+jobs:
+  refactor:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Refactor ExerciseDetailScreen
+        run: python tools/refactor_exercise_loader.py
+
+      - name: Commit final refactor and remove one-time files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/main.dart lib/exercise_repository.dart
+          git rm tools/refactor_exercise_loader.py .github/workflows/refactor-exercise-loader.yml
+          git commit -m "Use universal Supabase exercise loader"
+          git push
