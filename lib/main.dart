@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'programme_engine.dart';
 import 'workout_engine.dart';
+import 'exercise_repository.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 Future<void> main() async {
@@ -3793,10 +3794,27 @@ class _WorkoutDetailScreenState extends State<WorkoutDetailScreen> {
   }
 }
 
-class ExerciseDetailScreen extends StatelessWidget {
+class ExerciseDetailScreen extends StatefulWidget {
   final ExercisePrescription exercise;
 
   const ExerciseDetailScreen({super.key, required this.exercise});
+
+  @override
+  State<ExerciseDetailScreen> createState() => _ExerciseDetailScreenState();
+}
+
+class _ExerciseDetailScreenState extends State<ExerciseDetailScreen> {
+  late final ExerciseRepository _exerciseRepository;
+  late final Future<OnlineExercise?> _onlineExerciseFuture;
+
+  ExercisePrescription get exercise => widget.exercise;
+
+  @override
+  void initState() {
+    super.initState();
+    _exerciseRepository = ExerciseRepository(supabase);
+    _onlineExerciseFuture = _exerciseRepository.fetchByName(exercise.name);
+  }
 
   List<String> instructionsFor(String exerciseName) {
     switch (exerciseName) {
@@ -3890,387 +3908,301 @@ class ExerciseDetailScreen extends StatelessWidget {
     }
   }
 
-  Future<Map<String, dynamic>?> fetchOnlineExercise(String exerciseId) async {
-    final data = await supabase
-        .from('exercises')
-        .select()
-        .eq('id', exerciseId)
-        .maybeSingle();
+  Widget _placeholderVisual() {
+    return const Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(
+          Icons.accessibility_new,
+          size: 100,
+          color: Color(0xFF176B87),
+        ),
+        SizedBox(height: 16),
+        Text(
+          'Exercise visual being prepared',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF486581),
+          ),
+        ),
+      ],
+    );
+  }
 
-    return data;
+  Widget _localVisual() {
+    final visualAsset = exercise.visualAsset;
+    if (visualAsset == null || visualAsset.isEmpty) {
+      return _placeholderVisual();
+    }
+
+    return Image.asset(
+      visualAsset,
+      fit: BoxFit.contain,
+      errorBuilder: (context, error, stackTrace) => _placeholderVisual(),
+    );
+  }
+
+  Widget _exerciseVisual(
+    OnlineExercise? onlineExercise, {
+    required bool isLoading,
+  }) {
+    final imagePath = onlineExercise?.imagePath;
+
+    if (imagePath != null && imagePath.isNotEmpty) {
+      final imageUrl = _exerciseRepository.publicImageUrl(imagePath);
+      return Image.network(
+        imageUrl,
+        fit: BoxFit.contain,
+        errorBuilder: (context, error, stackTrace) => _localVisual(),
+      );
+    }
+
+    if (isLoading && exercise.visualAsset == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return _localVisual();
   }
 
   @override
   Widget build(BuildContext context) {
-    final instructions = instructionsFor(exercise.name);
-    final mistakes = mistakesFor(exercise.name);
+    return FutureBuilder<OnlineExercise?>(
+      future: _onlineExerciseFuture,
+      builder: (context, snapshot) {
+        final onlineExercise = snapshot.data;
+        final fallbackInstructions = instructionsFor(exercise.name);
+        final fallbackMistakes = mistakesFor(exercise.name);
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF7F9FC),
+        final instructions = onlineExercise != null &&
+                onlineExercise.instructions.isNotEmpty
+            ? onlineExercise.instructions
+            : fallbackInstructions;
 
-      appBar: AppBar(
-        backgroundColor: const Color(0xFFF7F9FC),
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Color(0xFF102A43)),
-          onPressed: () {
-            Navigator.pop(context);
-          },
-        ),
-      ),
+        final mistakes = onlineExercise != null &&
+                onlineExercise.commonMistakes.isNotEmpty
+            ? onlineExercise.commonMistakes
+            : fallbackMistakes;
 
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 10, 24, 30),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                exercise.name,
-                style: const TextStyle(
-                  fontSize: 30,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF102A43),
-                ),
-              ),
+        final target = onlineExercise != null &&
+                onlineExercise.primaryMuscles.isNotEmpty
+            ? onlineExercise.primaryMuscles.join(', ')
+            : exercise.target;
 
-              const SizedBox(height: 8),
+        final equipmentText = onlineExercise != null &&
+                onlineExercise.equipment.isNotEmpty
+            ? onlineExercise.equipment.join(', ')
+            : exercise.equipment;
 
-              Text(
-                exercise.target,
-                style: const TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF176B87),
-                ),
-              ),
-
-              if (exercise.name == 'Plank')
-                FutureBuilder<Map<String, dynamic>?>(
-                  future: fetchOnlineExercise('plank'),
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const Padding(
-                        padding: EdgeInsets.only(top: 12),
-                        child: Text('Loading Plank from Supabase...'),
-                      );
-                    }
-
-                    if (snapshot.hasError) {
-                      return Padding(
-                        padding: const EdgeInsets.only(top: 12),
-                        child: Text(
-                          'Supabase error: ${snapshot.error}',
-                          style: const TextStyle(color: Colors.red),
+        return Scaffold(
+          backgroundColor: const Color(0xFFF7F9FC),
+          appBar: AppBar(
+            backgroundColor: const Color(0xFFF7F9FC),
+            elevation: 0,
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back, color: Color(0xFF102A43)),
+              onPressed: () {
+                Navigator.pop(context);
+              },
+            ),
+          ),
+          body: SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(24, 10, 24, 30),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    exercise.name,
+                    style: const TextStyle(
+                      fontSize: 30,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF102A43),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    target,
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF176B87),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  Container(
+                    width: double.infinity,
+                    height: 320,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE5F4F8),
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: _exerciseVisual(
+                      onlineExercise,
+                      isLoading:
+                          snapshot.connectionState == ConnectionState.waiting,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _ExerciseInfoBox(
+                          label: 'SETS',
+                          value: '${exercise.sets}',
                         ),
-                      );
-                    }
-
-                    final onlineExercise = snapshot.data;
-
-                    if (onlineExercise == null) {
-                      return const Padding(
-                        padding: EdgeInsets.only(top: 12),
-                        child: Text('Plank was not found online.'),
-                      );
-                    }
-
-                    return Container(
-                      margin: const EdgeInsets.only(top: 16),
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE5F4F8),
-                        borderRadius: BorderRadius.circular(16),
                       ),
-                      child: Column(
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _ExerciseInfoBox(
+                          label: 'REPS',
+                          value: exercise.reps,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _ExerciseInfoBox(
+                          label: 'REST',
+                          value: exercise.rest,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 28),
+                  const Text(
+                    'How to perform',
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF102A43),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  ...instructions.asMap().entries.map(
+                    (entry) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'ONLINE EXERCISE',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF176B87),
+                          Container(
+                            width: 28,
+                            height: 28,
+                            alignment: Alignment.center,
+                            decoration: const BoxDecoration(
+                              color: Color(0xFFE5F4F8),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Text(
+                              '${entry.key + 1}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF176B87),
+                              ),
                             ),
                           ),
-                          const SizedBox(height: 8),
-
-                          Text(
-                            onlineExercise['name'] ?? '',
-                            style: const TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              entry.value,
+                              style: const TextStyle(
+                                fontSize: 15,
+                                height: 1.45,
+                                color: Color(0xFF486581),
+                              ),
                             ),
-                          ),
-
-                          Text('Category: ${onlineExercise['category'] ?? ''}'),
-
-                          Text(
-                            'Difficulty: ${onlineExercise['difficulty'] ?? ''}',
-                          ),
-
-                          Text(
-                            'Equipment: ${(onlineExercise['equipment'] as List?)?.join(', ') ?? ''}',
-                          ),
-
-                          Text(
-                            'Primary muscles: ${(onlineExercise['primary_muscles'] as List?)?.join(', ') ?? ''}',
                           ),
                         ],
                       ),
-                    );
-                  },
-                ),
-
-              const SizedBox(height: 24),
-
-              Container(
-                width: double.infinity,
-                height: 320,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE5F4F8),
-                  borderRadius: BorderRadius.circular(24),
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: exercise.name == 'Plank'
-                    ? FutureBuilder<Map<String, dynamic>?>(
-                        future: fetchOnlineExercise('plank'),
-                        builder: (context, snapshot) {
-                          if (snapshot.connectionState ==
-                              ConnectionState.waiting) {
-                            return const Center(
-                              child: CircularProgressIndicator(),
-                            );
-                          }
-
-                          if (snapshot.hasError || snapshot.data == null) {
-                            return const Center(
-                              child: Text('Unable to load Plank visual'),
-                            );
-                          }
-
-                          final imagePath =
-                              snapshot.data!['image_path'] as String?;
-
-                          if (imagePath == null || imagePath.isEmpty) {
-                            return const Center(
-                              child: Text('Exercise visual unavailable'),
-                            );
-                          }
-
-                          final imageUrl = supabase.storage
-                              .from('exercise-media')
-                              .getPublicUrl(imagePath);
-
-                          return Image.network(
-                            imageUrl,
-                            fit: BoxFit.contain,
-                            errorBuilder: (context, error, stackTrace) {
-                              return const Center(
-                                child: Text('Could not load online image'),
-                              );
-                            },
-                          );
-                        },
-                      )
-                    : exercise.visualAsset != null
-                    ? Image.asset(
-                        exercise.visualAsset!,
-                        fit: BoxFit.contain,
-                      )
-                    : const Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                    ),
+                  ),
+                  const SizedBox(height: 22),
+                  const Text(
+                    'Common mistakes',
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF102A43),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  ...mistakes.map(
+                    (mistake) => Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(
-                            Icons.accessibility_new,
-                            size: 100,
-                            color: Color(0xFF176B87),
+                          const Icon(
+                            Icons.close_rounded,
+                            color: Colors.redAccent,
+                            size: 22,
                           ),
-                          SizedBox(height: 16),
-                          Text(
-                            'Exercise visual being prepared',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF486581),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              mistake,
+                              style: const TextStyle(
+                                fontSize: 15,
+                                color: Color(0xFF486581),
+                              ),
                             ),
                           ),
                         ],
                       ),
-              ),
-
-              const SizedBox(height: 24),
-
-              Row(
-                children: [
-                  Expanded(
-                    child: _ExerciseInfoBox(
-                      label: 'SETS',
-                      value: '${exercise.sets}',
                     ),
                   ),
-
-                  const SizedBox(width: 10),
-
-                  Expanded(
-                    child: _ExerciseInfoBox(
-                      label: 'REPS',
-                      value: exercise.reps,
+                  const SizedBox(height: 24),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: const Color(0xFFD9E2EC)),
                     ),
-                  ),
-
-                  const SizedBox(width: 10),
-
-                  Expanded(
-                    child: _ExerciseInfoBox(
-                      label: 'REST',
-                      value: exercise.rest,
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.fitness_center,
+                          color: Color(0xFF176B87),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Equipment',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Color(0xFF829AB1),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                equipmentText,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF102A43),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
-
-              const SizedBox(height: 28),
-
-              const Text(
-                'How to perform',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF102A43),
-                ),
-              ),
-
-              const SizedBox(height: 14),
-
-              ...instructions.asMap().entries.map(
-                (entry) => Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        width: 28,
-                        height: 28,
-                        alignment: Alignment.center,
-                        decoration: const BoxDecoration(
-                          color: Color(0xFFE5F4F8),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Text(
-                          '${entry.key + 1}',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF176B87),
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          entry.value,
-                          style: const TextStyle(
-                            fontSize: 15,
-                            height: 1.45,
-                            color: Color(0xFF486581),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 22),
-
-              const Text(
-                'Common mistakes',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF102A43),
-                ),
-              ),
-
-              const SizedBox(height: 14),
-
-              ...mistakes.map(
-                (mistake) => Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Icon(
-                        Icons.close_rounded,
-                        color: Colors.redAccent,
-                        size: 22,
-                      ),
-
-                      const SizedBox(width: 10),
-
-                      Expanded(
-                        child: Text(
-                          mistake,
-                          style: const TextStyle(
-                            fontSize: 15,
-                            color: Color(0xFF486581),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 24),
-
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: const Color(0xFFD9E2EC)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.fitness_center, color: Color(0xFF176B87)),
-
-                    const SizedBox(width: 14),
-
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Equipment',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Color(0xFF829AB1),
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            exercise.equipment,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF102A43),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
+
 
 class _ExerciseInfoBox extends StatelessWidget {
   final String label;
