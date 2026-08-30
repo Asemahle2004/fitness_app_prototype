@@ -1,0 +1,30 @@
+name: One-time live workout patch
+
+on:
+  push:
+    paths:
+      - '.github/workflows/patch-live-workout.yml'
+      - 'tools/patch_live_workout.py'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Wire live workout
+        run: python tools/patch_live_workout.py
+
+      - name: Commit patch and remove one-time files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/main.dart lib/live_workout_screen.dart
+          git rm tools/patch_live_workout.py .github/workflows/patch-live-workout.yml
+          git commit -m "Wire Start Workout into live workout mode"
+          git push
