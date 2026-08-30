@@ -8,6 +8,10 @@ class LeanEatColors {
   static const cream = Color(0xFFF7F8F2);
   static const sand = Color(0xFFECEFE4);
   static const danger = Color(0xFFB42318);
+
+  // Semantic aliases used by screens across the app.
+  static const primary = forest;
+  static const background = cream;
 }
 
 ThemeData leanEatTheme() {
