@@ -6,6 +6,7 @@ import 'live_workout_screen.dart';
 import 'safety_engine.dart';
 import 'movement_visual.dart';
 import 'exercise_library_screen.dart';
+import 'workout_structure.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 Future<void> main() async {
@@ -3677,10 +3678,15 @@ class _WorkoutDetailScreenState extends State<WorkoutDetailScreen> {
       gymAccess: widget.gymAccess,
       sessionDuration: widget.session.duration,
     );
+    final structuredWorkout = WorkoutStructureEnhancer.enhance(
+      generatedWorkout,
+      sessionDuration: widget.session.duration,
+      location: selectedLocation,
+    );
     final selectedWorkout = customExercises == null
-        ? generatedWorkout
+        ? structuredWorkout
         : GeneratedWorkout(
-            title: '${generatedWorkout.title} — Custom',
+            title: '${structuredWorkout.title} — Custom',
             exercises: customExercises!,
           );
     final safetyProfile = SafetyProfile(
