@@ -74,7 +74,10 @@ class ExerciseRepository {
 
   Future<OnlineExercise?> fetchByName(String name) async {
     final exerciseId = idFromName(name);
+    return fetchById(exerciseId);
+  }
 
+  Future<OnlineExercise?> fetchById(String exerciseId) async {
     final data = await client
         .from('exercises')
         .select()
@@ -84,6 +87,36 @@ class ExerciseRepository {
 
     if (data == null) return null;
     return OnlineExercise.fromMap(data);
+  }
+
+  Future<List<OnlineExercise>> fetchAll() async {
+    final data = await client
+        .from('exercises')
+        .select()
+        .eq('is_active', true)
+        .order('name');
+
+    return (data as List)
+        .whereType<Map<String, dynamic>>()
+        .map(OnlineExercise.fromMap)
+        .toList(growable: false);
+  }
+
+  Future<List<OnlineExercise>> searchByName(String query) async {
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) return fetchAll();
+
+    final data = await client
+        .from('exercises')
+        .select()
+        .eq('is_active', true)
+        .ilike('name', '%$trimmed%')
+        .order('name');
+
+    return (data as List)
+        .whereType<Map<String, dynamic>>()
+        .map(OnlineExercise.fromMap)
+        .toList(growable: false);
   }
 
   String publicImageUrl(String imagePath) {
