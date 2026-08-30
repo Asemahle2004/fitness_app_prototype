@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'exercise_repository.dart';
 import 'movement_visual.dart';
+import 'profile_service.dart';
 
 class ExerciseMedia extends StatefulWidget {
   final String exerciseName;
@@ -25,12 +26,15 @@ class ExerciseMedia extends StatefulWidget {
 class _ExerciseMediaState extends State<ExerciseMedia> {
   late final ExerciseRepository _repository;
   late Future<OnlineExercise?> _future;
+  late Future<LeanEatProfile?> _profileFuture;
 
   @override
   void initState() {
     super.initState();
-    _repository = ExerciseRepository(Supabase.instance.client);
+    final client = Supabase.instance.client;
+    _repository = ExerciseRepository(client);
     _future = _repository.fetchByName(widget.exerciseName);
+    _profileFuture = ProfileService(client).currentProfile();
   }
 
   @override
@@ -47,7 +51,7 @@ class _ExerciseMediaState extends State<ExerciseMedia> {
       return Image.asset(
         asset,
         fit: widget.fit,
-        errorBuilder: (_, __, ___) => MovementVisual(
+        errorBuilder: (_, _, _) => MovementVisual(
           exerciseName: widget.exerciseName,
           movementPattern: movementPattern ?? widget.movementPattern,
         ),
@@ -61,16 +65,18 @@ class _ExerciseMediaState extends State<ExerciseMedia> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<OnlineExercise?>(
-      future: _future,
+    return FutureBuilder<List<Object?>>(
+      future: Future.wait<Object?>([_future, _profileFuture]),
       builder: (context, snapshot) {
-        final online = snapshot.data;
-        final imagePath = online?.imagePath;
+        final values = snapshot.data;
+        final online = values != null && values.isNotEmpty ? values[0] as OnlineExercise? : null;
+        final profile = values != null && values.length > 1 ? values[1] as LeanEatProfile? : null;
+        final imagePath = online?.imageForSex(profile?.preferredVisualSex);
         if (imagePath != null && imagePath.isNotEmpty) {
           return Image.network(
             _repository.publicImageUrl(imagePath),
             fit: widget.fit,
-            errorBuilder: (_, __, ___) => _fallback(online?.movementPattern),
+            errorBuilder: (_, _, _) => _fallback(online?.movementPattern),
           );
         }
         return _fallback(online?.movementPattern);
