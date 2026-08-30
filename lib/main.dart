@@ -3411,7 +3411,20 @@ class ProgrammeReadyScreen extends StatelessWidget {
                   height: 60,
                   child: ElevatedButton(
                     onPressed: () {
-                      // Workout exercise generation comes next.
+                      final firstSession = programme.sessions.first;
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => WorkoutDetailScreen(
+                            session: firstSession,
+                            locations: locations,
+                            homeEquipment: homeEquipment,
+                            gymAccess: gymAccess,
+                            hasLimitation: hasLimitation,
+                            affectedAreas: Set<String>.from(affectedAreas),
+                          ),
+                        ),
+                      );
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF176B87),
@@ -3467,7 +3480,18 @@ class _WorkoutDetailScreenState extends State<WorkoutDetailScreen> {
   void initState() {
     super.initState();
 
-    if (widget.locations.contains('Gym')) {
+    final preferredLocation = widget.session.location;
+
+    if (preferredLocation.contains('Outside') &&
+        widget.locations.contains('Outside')) {
+      selectedLocation = 'Outside';
+    } else if (preferredLocation.contains('Home') &&
+        widget.locations.contains('Home')) {
+      selectedLocation = 'Home';
+    } else if (preferredLocation.contains('Gym') &&
+        widget.locations.contains('Gym')) {
+      selectedLocation = 'Gym';
+    } else if (widget.locations.contains('Gym')) {
       selectedLocation = 'Gym';
     } else if (widget.locations.contains('Home')) {
       selectedLocation = 'Home';
@@ -3481,6 +3505,9 @@ class _WorkoutDetailScreenState extends State<WorkoutDetailScreen> {
     final workout = WorkoutEngine.generate(
       sessionTitle: widget.session.title,
       location: selectedLocation,
+      homeEquipment: widget.homeEquipment,
+      gymAccess: widget.gymAccess,
+      sessionDuration: widget.session.duration,
     );
 
     return Scaffold(
@@ -3540,8 +3567,7 @@ class _WorkoutDetailScreenState extends State<WorkoutDetailScreen> {
 
                     const SizedBox(height: 24),
 
-                    if (widget.locations.contains('Home') &&
-                        widget.locations.contains('Gym')) ...[
+                    if (widget.locations.length > 1) ...[
                       const Text(
                         'Where are you training today?',
                         style: TextStyle(
@@ -3553,43 +3579,23 @@ class _WorkoutDetailScreenState extends State<WorkoutDetailScreen> {
 
                       const SizedBox(height: 12),
 
-                      Row(
-                        children: [
-                          Expanded(
-                            child: ChoiceChip(
-                              label: const SizedBox(
-                                width: double.infinity,
-                                child: Text('Gym', textAlign: TextAlign.center),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: ['Gym', 'Home', 'Outside']
+                            .where(widget.locations.contains)
+                            .map(
+                              (location) => ChoiceChip(
+                                label: Text(location),
+                                selected: selectedLocation == location,
+                                onSelected: (_) {
+                                  setState(() {
+                                    selectedLocation = location;
+                                  });
+                                },
                               ),
-                              selected: selectedLocation == 'Gym',
-                              onSelected: (_) {
-                                setState(() {
-                                  selectedLocation = 'Gym';
-                                });
-                              },
-                            ),
-                          ),
-
-                          const SizedBox(width: 12),
-
-                          Expanded(
-                            child: ChoiceChip(
-                              label: const SizedBox(
-                                width: double.infinity,
-                                child: Text(
-                                  'Home',
-                                  textAlign: TextAlign.center,
-                                ),
-                              ),
-                              selected: selectedLocation == 'Home',
-                              onSelected: (_) {
-                                setState(() {
-                                  selectedLocation = 'Home';
-                                });
-                              },
-                            ),
-                          ),
-                        ],
+                            )
+                            .toList(),
                       ),
 
                       const SizedBox(height: 24),
@@ -3714,8 +3720,7 @@ class _WorkoutDetailScreenState extends State<WorkoutDetailScreen> {
                                       const SizedBox(height: 8),
 
                                       Text(
-                                        '${exercise.sets} sets × '
-                                        '${exercise.reps} • '
+                                        '${exercise.summary} • '
                                         'Rest ${exercise.rest}',
                                         style: const TextStyle(
                                           fontSize: 14,
@@ -4049,14 +4054,14 @@ class _ExerciseDetailScreenState extends State<ExerciseDetailScreen> {
                     children: [
                       Expanded(
                         child: _ExerciseInfoBox(
-                          label: 'SETS',
+                          label: exercise.setsLabel,
                           value: '${exercise.sets}',
                         ),
                       ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: _ExerciseInfoBox(
-                          label: 'REPS',
+                          label: exercise.repsLabel,
                           value: exercise.reps,
                         ),
                       ),
