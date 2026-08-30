@@ -24,3 +24,6 @@ jobs:
 
       - name: Run tests
         run: flutter test
+
+      - name: Compile web app
+        run: flutter build web
