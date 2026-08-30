@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'exercise_media.dart';
 import 'movement_visual.dart';
 import 'training_store.dart';
 import 'workout_engine.dart';
@@ -325,15 +326,11 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
                       width: double.infinity,
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(18),
-                        child: exercise.visualAsset != null
-                            ? Image.asset(
-                                exercise.visualAsset!,
-                                fit: BoxFit.contain,
-                                errorBuilder: (_, __, ___) => MovementVisual(
-                                  exerciseName: exercise.name,
-                                ),
-                              )
-                            : MovementVisual(exerciseName: exercise.name),
+                        child: ExerciseMedia(
+                          exerciseName: exercise.name,
+                          localAsset: exercise.visualAsset,
+                          fit: BoxFit.contain,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 18),
