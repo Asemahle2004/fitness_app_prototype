@@ -102,7 +102,13 @@ class TrainingStore {
   static const _workoutsKey = 'leaneat_workout_history_v2';
   static const _readinessKey = 'leaneat_readiness_history_v2';
 
-  static SupabaseClient get _client => Supabase.instance.client;
+  static SupabaseClient? get _clientOrNull {
+    try {
+      return Supabase.instance.client;
+    } catch (_) {
+      return null;
+    }
+  }
 
   static Future<void> saveWorkout(WorkoutRecord record) async {
     final prefs = await SharedPreferences.getInstance();
@@ -112,10 +118,11 @@ class TrainingStore {
       [jsonEncode(record.toJson()), ...existing].take(200).toList(),
     );
 
-    final user = _client.auth.currentUser;
-    if (user != null) {
+    final client = _clientOrNull;
+    final user = client?.auth.currentUser;
+    if (client != null && user != null) {
       try {
-        await _client.from('workout_logs').insert({
+        await client.from('workout_logs').insert({
           'user_id': user.id,
           'title': record.title,
           'completed_at': record.completedAt.toIso8601String(),
@@ -130,10 +137,11 @@ class TrainingStore {
   }
 
   static Future<List<WorkoutRecord>> loadWorkouts() async {
-    final user = _client.auth.currentUser;
-    if (user != null) {
+    final client = _clientOrNull;
+    final user = client?.auth.currentUser;
+    if (client != null && user != null) {
       try {
-        final rows = await _client
+        final rows = await client
             .from('workout_logs')
             .select('title,completed_at,duration_seconds,completed_sets,exercises')
             .eq('user_id', user.id)
@@ -169,10 +177,11 @@ class TrainingStore {
       [jsonEncode(record.toJson()), ...existing].take(90).toList(),
     );
 
-    final user = _client.auth.currentUser;
-    if (user != null) {
+    final client = _clientOrNull;
+    final user = client?.auth.currentUser;
+    if (client != null && user != null) {
       try {
-        await _client.from('readiness_logs').insert({
+        await client.from('readiness_logs').insert({
           'user_id': user.id,
           'recorded_at': record.recordedAt.toIso8601String(),
           'sleep': record.sleep,
@@ -186,10 +195,11 @@ class TrainingStore {
   }
 
   static Future<List<ReadinessRecord>> loadReadiness() async {
-    final user = _client.auth.currentUser;
-    if (user != null) {
+    final client = _clientOrNull;
+    final user = client?.auth.currentUser;
+    if (client != null && user != null) {
       try {
-        final rows = await _client
+        final rows = await client
             .from('readiness_logs')
             .select('recorded_at,sleep,energy,soreness,stress')
             .eq('user_id', user.id)
