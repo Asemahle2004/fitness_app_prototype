@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class WorkoutRecord {
   final String title;
@@ -28,10 +29,14 @@ class WorkoutRecord {
   factory WorkoutRecord.fromJson(Map<String, dynamic> json) {
     return WorkoutRecord(
       title: json['title'] as String? ?? 'Workout',
-      completedAt: DateTime.tryParse(json['completedAt'] as String? ?? '') ??
+      completedAt: DateTime.tryParse(
+            (json['completedAt'] ?? json['completed_at'] ?? '') as String,
+          ) ??
           DateTime.now(),
-      durationSeconds: json['durationSeconds'] as int? ?? 0,
-      completedSets: json['completedSets'] as int? ?? 0,
+      durationSeconds:
+          (json['durationSeconds'] ?? json['duration_seconds'] ?? 0) as int,
+      completedSets:
+          (json['completedSets'] ?? json['completed_sets'] ?? 0) as int,
       exercises: (json['exercises'] as List? ?? const [])
           .whereType<String>()
           .toList(growable: false),
@@ -61,8 +66,12 @@ class ReadinessRecord {
 
   String get recommendation {
     if (score >= 80) return 'Ready for your planned session.';
-    if (score >= 60) return 'Train, but keep 1–2 reps in reserve and avoid unnecessary extra volume.';
-    if (score >= 40) return 'Use a lighter session, reduce sets, or choose mobility / easy cardio.';
+    if (score >= 60) {
+      return 'Train, but keep 1–2 reps in reserve and avoid unnecessary extra volume.';
+    }
+    if (score >= 40) {
+      return 'Use a lighter session, reduce sets, or choose mobility / easy cardio.';
+    }
     return 'Recovery is low. Consider rest or a very easy recovery session.';
   }
 
@@ -77,7 +86,9 @@ class ReadinessRecord {
   factory ReadinessRecord.fromJson(Map<String, dynamic> json) {
     double value(String key) => (json[key] as num?)?.toDouble() ?? 3;
     return ReadinessRecord(
-      recordedAt: DateTime.tryParse(json['recordedAt'] as String? ?? '') ??
+      recordedAt: DateTime.tryParse(
+            (json['recordedAt'] ?? json['recorded_at'] ?? '') as String,
+          ) ??
           DateTime.now(),
       sleep: value('sleep'),
       energy: value('energy'),
@@ -88,17 +99,54 @@ class ReadinessRecord {
 }
 
 class TrainingStore {
-  static const _workoutsKey = 'leanit_workout_history_v1';
-  static const _readinessKey = 'leanit_readiness_history_v1';
+  static const _workoutsKey = 'leaneat_workout_history_v2';
+  static const _readinessKey = 'leaneat_readiness_history_v2';
+
+  static SupabaseClient get _client => Supabase.instance.client;
 
   static Future<void> saveWorkout(WorkoutRecord record) async {
     final prefs = await SharedPreferences.getInstance();
     final existing = prefs.getStringList(_workoutsKey) ?? <String>[];
-    final updated = [jsonEncode(record.toJson()), ...existing].take(200).toList();
-    await prefs.setStringList(_workoutsKey, updated);
+    await prefs.setStringList(
+      _workoutsKey,
+      [jsonEncode(record.toJson()), ...existing].take(200).toList(),
+    );
+
+    final user = _client.auth.currentUser;
+    if (user != null) {
+      try {
+        await _client.from('workout_logs').insert({
+          'user_id': user.id,
+          'title': record.title,
+          'completed_at': record.completedAt.toIso8601String(),
+          'duration_seconds': record.durationSeconds,
+          'completed_sets': record.completedSets,
+          'exercises': record.exercises,
+        });
+      } catch (_) {
+        // Local history remains available if cloud sync is temporarily offline.
+      }
+    }
   }
 
   static Future<List<WorkoutRecord>> loadWorkouts() async {
+    final user = _client.auth.currentUser;
+    if (user != null) {
+      try {
+        final rows = await _client
+            .from('workout_logs')
+            .select('title,completed_at,duration_seconds,completed_sets,exercises')
+            .eq('user_id', user.id)
+            .order('completed_at', ascending: false)
+            .limit(200);
+        final cloud = (rows as List)
+            .whereType<Map<String, dynamic>>()
+            .map(WorkoutRecord.fromJson)
+            .toList(growable: false);
+        if (cloud.isNotEmpty) return cloud;
+      } catch (_) {}
+    }
+
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getStringList(_workoutsKey) ?? const <String>[];
     final records = <WorkoutRecord>[];
@@ -116,11 +164,45 @@ class TrainingStore {
   static Future<void> saveReadiness(ReadinessRecord record) async {
     final prefs = await SharedPreferences.getInstance();
     final existing = prefs.getStringList(_readinessKey) ?? <String>[];
-    final updated = [jsonEncode(record.toJson()), ...existing].take(90).toList();
-    await prefs.setStringList(_readinessKey, updated);
+    await prefs.setStringList(
+      _readinessKey,
+      [jsonEncode(record.toJson()), ...existing].take(90).toList(),
+    );
+
+    final user = _client.auth.currentUser;
+    if (user != null) {
+      try {
+        await _client.from('readiness_logs').insert({
+          'user_id': user.id,
+          'recorded_at': record.recordedAt.toIso8601String(),
+          'sleep': record.sleep,
+          'energy': record.energy,
+          'soreness': record.soreness,
+          'stress': record.stress,
+          'readiness_score': record.score,
+        });
+      } catch (_) {}
+    }
   }
 
   static Future<List<ReadinessRecord>> loadReadiness() async {
+    final user = _client.auth.currentUser;
+    if (user != null) {
+      try {
+        final rows = await _client
+            .from('readiness_logs')
+            .select('recorded_at,sleep,energy,soreness,stress')
+            .eq('user_id', user.id)
+            .order('recorded_at', ascending: false)
+            .limit(90);
+        final cloud = (rows as List)
+            .whereType<Map<String, dynamic>>()
+            .map(ReadinessRecord.fromJson)
+            .toList(growable: false);
+        if (cloud.isNotEmpty) return cloud;
+      } catch (_) {}
+    }
+
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getStringList(_readinessKey) ?? const <String>[];
     final records = <ReadinessRecord>[];
