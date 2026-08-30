@@ -11,6 +11,7 @@ import 'progress_screen.dart';
 import 'readiness_screen.dart';
 import 'auth_gate.dart';
 import 'lean_eat_theme.dart';
+import 'profile_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 Future<void> main() async {
@@ -3194,7 +3195,47 @@ class ProfileReviewScreen extends StatelessWidget {
                 width: double.infinity,
                 height: 62,
                 child: ElevatedButton.icon(
-                  onPressed: () {
+                  onPressed: () async {
+                    final profileService = ProfileService(supabase);
+                    await profileService.updateProfile({
+                      'sex': sex,
+                      'age': age,
+                      'height_cm': height,
+                      'weight_kg': weight,
+                      'main_goal': selectedGoal,
+                      'activity_level': activityLevel,
+                      'experience': trainingExperience,
+                      'fitness_level': fitnessLevel,
+                      'training_locations': selectedLocations.toList(),
+                      'home_equipment': homeEquipment.toList(),
+                      'gym_access': gymAccess,
+                      'available_days': selectedDays.toList(),
+                      'session_length': sessionLength,
+                      'training_time': trainingTime,
+                      'has_limitation': hasLimitation,
+                      'affected_areas': affectedAreas.toList(),
+                      'limitation_notes': limitationNotes,
+                      'visual_preference': 'Match profile',
+                      'onboarding_complete': true,
+                    });
+                    try {
+                      await supabase.functions.invoke(
+                        'plan-analyzer',
+                        body: {
+                          'goal': selectedGoal,
+                          'experience': trainingExperience,
+                          'fitnessLevel': fitnessLevel,
+                          'availableDays': selectedDays.toList(),
+                          'locations': selectedLocations.toList(),
+                          'sessionLength': sessionLength,
+                          'hasLimitation': hasLimitation,
+                          'affectedAreas': affectedAreas.toList(),
+                        },
+                      );
+                    } catch (_) {
+                      // Programme generation still works offline if analysis sync fails.
+                    }
+                    if (!context.mounted) return;
                     Navigator.push(
                       context,
                       MaterialPageRoute(
