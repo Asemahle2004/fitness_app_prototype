@@ -9,6 +9,8 @@ import 'exercise_library_screen.dart';
 import 'workout_structure.dart';
 import 'progress_screen.dart';
 import 'readiness_screen.dart';
+import 'auth_gate.dart';
+import 'lean_eat_theme.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 Future<void> main() async {
@@ -31,9 +33,9 @@ class FitnessApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Fitness App',
-      theme: ThemeData(useMaterial3: true, fontFamily: 'Arial'),
-      home: const WelcomeScreen(),
+      title: 'LeanEat',
+      theme: leanEatTheme(),
+      home: const LeanEatAuthGate(signedInHome: WelcomeScreen()),
     );
   }
 }
@@ -52,25 +54,12 @@ class WelcomeScreen extends StatelessWidget {
             children: [
               const Spacer(),
 
-              // Temporary logo
-              Container(
-                width: 90,
-                height: 90,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF176B87),
-                  borderRadius: BorderRadius.circular(28),
-                ),
-                child: const Icon(
-                  Icons.fitness_center,
-                  size: 44,
-                  color: Colors.white,
-                ),
-              ),
+              const LeanEatLogo(size: 82),
 
               const SizedBox(height: 35),
 
               const Text(
-                'Train for your goal.',
+                'Train smarter. Eat better.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 30,
@@ -82,7 +71,7 @@ class WelcomeScreen extends StatelessWidget {
               const SizedBox(height: 8),
 
               const Text(
-                'We plan the rest.',
+                'LeanEat adapts with you.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 30,
@@ -94,7 +83,7 @@ class WelcomeScreen extends StatelessWidget {
               const SizedBox(height: 24),
 
               const Text(
-                'Get a personalised training programme for home, gym or running based on your goal, experience, equipment and schedule.',
+                'Evidence-informed training, guided workouts, recovery checks and progress tracking — personalised to your goals, equipment, schedule and limitations.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 16,
