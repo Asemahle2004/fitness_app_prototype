@@ -1,0 +1,22 @@
+name: One-time LeanEat profile analyzer patch
+on:
+  push:
+    paths:
+      - '.github/workflows/patch-profile-analyzer.yml'
+      - 'tools/patch_profile_analyzer.py'
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python tools/patch_profile_analyzer.py
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/main.dart
+          git rm tools/patch_profile_analyzer.py .github/workflows/patch-profile-analyzer.yml
+          git commit -m "Save onboarding profile and run LeanEat analyzer"
+          git push
