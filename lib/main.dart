@@ -4031,8 +4031,52 @@ class ExerciseDetailScreen extends StatelessWidget {
                   borderRadius: BorderRadius.circular(24),
                 ),
                 clipBehavior: Clip.antiAlias,
-                child: exercise.visualAsset != null
-                    ? Image.asset(exercise.visualAsset!, fit: BoxFit.contain)
+                child: exercise.name == 'Plank'
+                    ? FutureBuilder<Map<String, dynamic>?>(
+                        future: fetchOnlineExercise('plank'),
+                        builder: (context, snapshot) {
+                          if (snapshot.connectionState ==
+                              ConnectionState.waiting) {
+                            return const Center(
+                              child: CircularProgressIndicator(),
+                            );
+                          }
+
+                          if (snapshot.hasError || snapshot.data == null) {
+                            return const Center(
+                              child: Text('Unable to load Plank visual'),
+                            );
+                          }
+
+                          final imagePath =
+                              snapshot.data!['image_path'] as String?;
+
+                          if (imagePath == null || imagePath.isEmpty) {
+                            return const Center(
+                              child: Text('Exercise visual unavailable'),
+                            );
+                          }
+
+                          final imageUrl = supabase.storage
+                              .from('exercise-media')
+                              .getPublicUrl(imagePath);
+
+                          return Image.network(
+                            imageUrl,
+                            fit: BoxFit.contain,
+                            errorBuilder: (context, error, stackTrace) {
+                              return const Center(
+                                child: Text('Could not load online image'),
+                              );
+                            },
+                          );
+                        },
+                      )
+                    : exercise.visualAsset != null
+                    ? Image.asset(
+                        exercise.visualAsset!,
+                        fit: BoxFit.contain,
+                      )
                     : const Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
