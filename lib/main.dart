@@ -7,6 +7,8 @@ import 'safety_engine.dart';
 import 'movement_visual.dart';
 import 'exercise_library_screen.dart';
 import 'workout_structure.dart';
+import 'progress_screen.dart';
+import 'readiness_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 Future<void> main() async {
@@ -404,6 +406,54 @@ class _GoalSelectionScreenState extends State<GoalSelectionScreen> {
                     ),
                   ),
                 ),
+              ),
+
+              const SizedBox(height: 10),
+
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const ProgressScreen()),
+                        );
+                      },
+                      icon: const Icon(Icons.insights_outlined),
+                      label: const Text('PROGRESS'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF176B87),
+                        side: const BorderSide(color: Color(0xFFD9E2EC)),
+                        minimumSize: const Size.fromHeight(50),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const ReadinessScreen()),
+                        );
+                      },
+                      icon: const Icon(Icons.battery_charging_full_outlined),
+                      label: const Text('READINESS'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF176B87),
+                        side: const BorderSide(color: Color(0xFFD9E2EC)),
+                        minimumSize: const Size.fromHeight(50),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
 
               const SizedBox(height: 18),

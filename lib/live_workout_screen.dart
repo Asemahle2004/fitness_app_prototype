@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'movement_visual.dart';
+import 'training_store.dart';
 import 'workout_engine.dart';
 
 enum RepPace {
@@ -48,6 +49,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
   int workSecondsRemaining = 0;
   int workSecondsTarget = 0;
   int restSecondsRemaining = 0;
+  bool _historySaved = false;
 
   bool get isComplete =>
       widget.workout.exercises.isNotEmpty &&
@@ -192,6 +194,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
 
     if (completedExercises >= widget.workout.exercises.length) {
       setState(() => phase = LivePhase.ready);
+      _saveHistory();
       return;
     }
 
@@ -199,6 +202,22 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
       currentIndex += 1;
       _prepareCurrentExercise();
     });
+  }
+
+  Future<void> _saveHistory() async {
+    if (_historySaved) return;
+    _historySaved = true;
+    await TrainingStore.saveWorkout(
+      WorkoutRecord(
+        title: widget.workout.title,
+        completedAt: DateTime.now(),
+        durationSeconds: workoutSeconds,
+        completedSets: completedSets,
+        exercises: widget.workout.exercises
+            .map((exercise) => exercise.name)
+            .toList(growable: false),
+      ),
+    );
   }
 
   void _skipRest() => _advanceAfterRest();
@@ -302,7 +321,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     SizedBox(
-                      height: 210,
+                      height: 290,
                       width: double.infinity,
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(18),
