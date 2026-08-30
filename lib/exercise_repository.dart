@@ -14,6 +14,10 @@ class OnlineExercise {
   final List<String> commonMistakes;
   final String? imagePath;
   final String? videoPath;
+  final String? maleImagePath;
+  final String? femaleImagePath;
+  final String? maleVideoPath;
+  final String? femaleVideoPath;
 
   const OnlineExercise({
     required this.id,
@@ -29,6 +33,10 @@ class OnlineExercise {
     required this.commonMistakes,
     required this.imagePath,
     required this.videoPath,
+    required this.maleImagePath,
+    required this.femaleImagePath,
+    required this.maleVideoPath,
+    required this.femaleVideoPath,
   });
 
   factory OnlineExercise.fromMap(Map<String, dynamic> map) {
@@ -52,7 +60,21 @@ class OnlineExercise {
       commonMistakes: strings(map['common_mistakes']),
       imagePath: map['image_path'] as String?,
       videoPath: map['video_path'] as String?,
+      maleImagePath: map['male_image_path'] as String?,
+      femaleImagePath: map['female_image_path'] as String?,
+      maleVideoPath: map['male_video_path'] as String?,
+      femaleVideoPath: map['female_video_path'] as String?,
     );
+  }
+
+  String? imageForSex(String? sex) {
+    if (sex == 'Female') {
+      return femaleImagePath ?? imagePath ?? maleImagePath;
+    }
+    if (sex == 'Male') {
+      return maleImagePath ?? imagePath ?? femaleImagePath;
+    }
+    return imagePath ?? maleImagePath ?? femaleImagePath;
   }
 }
 
