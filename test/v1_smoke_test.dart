@@ -7,8 +7,8 @@ void main() {
   test('LeanIt v1 progress and readiness modules compile', () {
     expect(const ProgressScreen(), isNotNull);
     expect(const ReadinessScreen(), isNotNull);
-    const record = ReadinessRecord(
-      recordedAt: null,
+    final record = ReadinessRecord(
+      recordedAt: DateTime(2026, 8, 30),
       sleep: 3,
       energy: 3,
       soreness: 3,
