@@ -57,8 +57,8 @@ class DropSetEngine {
     if (!config.enabled) return clear(exercise);
     if (!canConfigure(exercise)) return exercise;
     return exercise.copyWith(
-      dropSetCount: config.drops.clamp(1, maxDrops),
-      dropSetReductionPercent: config.reductionPercent.clamp(10, 40),
+      dropSetCount: config.drops.clamp(1, maxDrops).toInt(),
+      dropSetReductionPercent: config.reductionPercent.clamp(10, 40).toInt(),
     );
   }
 
