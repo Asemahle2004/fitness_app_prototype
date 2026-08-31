@@ -1,6 +1,10 @@
+import 'dart:convert';
+
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ExerciseSetPerformance {
+  final String workoutTitle;
   final String exerciseName;
   final int setNumber;
   final int? reps;
@@ -9,6 +13,7 @@ class ExerciseSetPerformance {
   final DateTime performedAt;
 
   const ExerciseSetPerformance({
+    this.workoutTitle = 'Workout',
     required this.exerciseName,
     required this.setNumber,
     required this.reps,
@@ -19,15 +24,38 @@ class ExerciseSetPerformance {
 
   factory ExerciseSetPerformance.fromMap(Map<String, dynamic> map) {
     return ExerciseSetPerformance(
-      exerciseName: map['exercise_name']?.toString() ?? 'Exercise',
-      setNumber: (map['set_number'] as num?)?.toInt() ?? 1,
+      workoutTitle:
+          (map['workout_title'] ?? map['workoutTitle'])?.toString() ?? 'Workout',
+      exerciseName:
+          (map['exercise_name'] ?? map['exerciseName'])?.toString() ?? 'Exercise',
+      setNumber: (map['set_number'] ?? map['setNumber'] as num?) is num
+          ? ((map['set_number'] ?? map['setNumber']) as num).toInt()
+          : 1,
       reps: (map['reps'] as num?)?.toInt(),
-      weightKg: (map['weight_kg'] as num?)?.toDouble(),
-      durationSeconds: (map['duration_seconds'] as num?)?.toInt(),
-      performedAt: DateTime.tryParse(map['performed_at']?.toString() ?? '') ??
+      weightKg: (map['weight_kg'] ?? map['weightKg'] as num?) is num
+          ? ((map['weight_kg'] ?? map['weightKg']) as num).toDouble()
+          : null,
+      durationSeconds:
+          (map['duration_seconds'] ?? map['durationSeconds'] as num?) is num
+              ? ((map['duration_seconds'] ?? map['durationSeconds']) as num)
+                  .toInt()
+              : null,
+      performedAt: DateTime.tryParse(
+            (map['performed_at'] ?? map['performedAt'])?.toString() ?? '',
+          ) ??
           DateTime.now(),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'workoutTitle': workoutTitle,
+        'exerciseName': exerciseName,
+        'setNumber': setNumber,
+        'reps': reps,
+        'weightKg': weightKg,
+        'durationSeconds': durationSeconds,
+        'performedAt': performedAt.toIso8601String(),
+      };
 
   String get summary {
     if (durationSeconds != null) {
@@ -44,9 +72,46 @@ class ExerciseSetPerformance {
     if (reps != null) return '$reps reps';
     return 'Completed set';
   }
+
+  double get volumeKg {
+    if (weightKg == null || reps == null) return 0;
+    return weightKg! * reps!;
+  }
+
+  String? get nextTargetSuggestion {
+    if (durationSeconds != null) {
+      final increase = durationSeconds! < 60 ? 5 : 10;
+      return 'Try ${durationSeconds! + increase}s next time if form stays controlled.';
+    }
+
+    if (reps != null && weightKg != null) {
+      if (reps! >= 12) {
+        final nextWeight = weightKg! + 2.5;
+        final formatted = nextWeight % 1 == 0
+            ? nextWeight.toStringAsFixed(0)
+            : nextWeight.toStringAsFixed(1);
+        final resetReps = (reps! - 2).clamp(8, 10);
+        return 'Try $formatted kg × $resetReps reps next time if today felt controlled.';
+      }
+      return 'Try ${_formatWeight(weightKg!)} kg × ${reps! + 1} reps next time if form stays good.';
+    }
+
+    if (reps != null) {
+      return 'Try ${reps! + 1} reps next time if today felt controlled.';
+    }
+
+    return null;
+  }
+
+  static String _formatWeight(double value) {
+    return value % 1 == 0 ? value.toStringAsFixed(0) : value.toStringAsFixed(1);
+  }
 }
 
 class ExercisePerformanceStore {
+  static const _localHistoryKey = 'leanit_exercise_set_history_v1';
+  static const _maxLocalRecords = 2000;
+
   final SupabaseClient client;
 
   const ExercisePerformanceStore(this.client);
@@ -59,37 +124,168 @@ class ExercisePerformanceStore {
     double? weightKg,
     int? durationSeconds,
   }) async {
+    final record = ExerciseSetPerformance(
+      workoutTitle: workoutTitle,
+      exerciseName: exerciseName,
+      setNumber: setNumber,
+      reps: reps,
+      weightKg: weightKg,
+      durationSeconds: durationSeconds,
+      performedAt: DateTime.now(),
+    );
+
+    // Local-first: a completed set is never lost merely because mobile data,
+    // Wi-Fi or the LeanIt backend is unavailable.
+    await _saveLocal(record);
+
     final user = client.auth.currentUser;
     if (user == null) return;
 
-    await client.from('exercise_set_logs').insert({
-      'user_id': user.id,
-      'workout_title': workoutTitle,
-      'exercise_name': exerciseName,
-      'set_number': setNumber,
-      'reps': reps,
-      'weight_kg': weightKg,
-      'duration_seconds': durationSeconds,
-      'performed_at': DateTime.now().toIso8601String(),
-    });
+    try {
+      await client.from('exercise_set_logs').insert({
+        'user_id': user.id,
+        'workout_title': record.workoutTitle,
+        'exercise_name': record.exerciseName,
+        'set_number': record.setNumber,
+        'reps': record.reps,
+        'weight_kg': record.weightKg,
+        'duration_seconds': record.durationSeconds,
+        'performed_at': record.performedAt.toIso8601String(),
+      });
+    } catch (_) {
+      // The local record remains authoritative until a later sync path exists.
+    }
   }
 
   Future<ExerciseSetPerformance?> latestForExercise(String exerciseName) async {
+    final local = await _latestLocalForExercise(exerciseName);
     final user = client.auth.currentUser;
-    if (user == null) return null;
+    if (user == null) return local;
 
-    final row = await client
-        .from('exercise_set_logs')
-        .select(
-          'exercise_name,set_number,reps,weight_kg,duration_seconds,performed_at',
-        )
-        .eq('user_id', user.id)
-        .eq('exercise_name', exerciseName)
-        .order('performed_at', ascending: false)
-        .limit(1)
-        .maybeSingle();
+    ExerciseSetPerformance? cloud;
+    try {
+      final row = await client
+          .from('exercise_set_logs')
+          .select(
+            'workout_title,exercise_name,set_number,reps,weight_kg,duration_seconds,performed_at',
+          )
+          .eq('user_id', user.id)
+          .eq('exercise_name', exerciseName)
+          .order('performed_at', ascending: false)
+          .limit(1)
+          .maybeSingle();
 
-    if (row == null) return null;
-    return ExerciseSetPerformance.fromMap(Map<String, dynamic>.from(row));
+      if (row != null) {
+        cloud = ExerciseSetPerformance.fromMap(Map<String, dynamic>.from(row));
+      }
+    } catch (_) {
+      // Offline/local history remains available.
+    }
+
+    if (local == null) return cloud;
+    if (cloud == null) return local;
+    return local.performedAt.isAfter(cloud.performedAt) ? local : cloud;
+  }
+
+  Future<List<ExerciseSetPerformance>> loadRecent({int limit = 100}) async {
+    final merged = <String, ExerciseSetPerformance>{};
+
+    for (final record in await _loadLocal()) {
+      merged[_signature(record)] = record;
+    }
+
+    final user = client.auth.currentUser;
+    if (user != null) {
+      try {
+        final rows = await client
+            .from('exercise_set_logs')
+            .select(
+              'workout_title,exercise_name,set_number,reps,weight_kg,duration_seconds,performed_at',
+            )
+            .eq('user_id', user.id)
+            .order('performed_at', ascending: false)
+            .limit(limit.clamp(1, 500));
+
+        for (final row in (rows as List).whereType<Map<String, dynamic>>()) {
+          final record = ExerciseSetPerformance.fromMap(row);
+          merged[_signature(record)] = record;
+        }
+      } catch (_) {
+        // Return local history when cloud history cannot be reached.
+      }
+    }
+
+    final records = merged.values.toList(growable: false)
+      ..sort((a, b) => b.performedAt.compareTo(a.performedAt));
+    return records.take(limit).toList(growable: false);
+  }
+
+  Future<List<ExerciseSetPerformance>> loadForExercise(
+    String exerciseName, {
+    int limit = 50,
+  }) async {
+    final lower = exerciseName.trim().toLowerCase();
+    final recent = await loadRecent(limit: 500);
+    return recent
+        .where((record) => record.exerciseName.toLowerCase() == lower)
+        .take(limit)
+        .toList(growable: false);
+  }
+
+  Future<void> _saveLocal(ExerciseSetPerformance record) async {
+    final prefs = await SharedPreferences.getInstance();
+    final existing = prefs.getStringList(_localHistoryKey) ?? <String>[];
+    await prefs.setStringList(
+      _localHistoryKey,
+      [jsonEncode(record.toJson()), ...existing]
+          .take(_maxLocalRecords)
+          .toList(growable: false),
+    );
+  }
+
+  Future<List<ExerciseSetPerformance>> _loadLocal() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getStringList(_localHistoryKey) ?? const <String>[];
+    final records = <ExerciseSetPerformance>[];
+
+    for (final item in raw) {
+      try {
+        final decoded = jsonDecode(item);
+        if (decoded is Map) {
+          records.add(
+            ExerciseSetPerformance.fromMap(
+              Map<String, dynamic>.from(decoded),
+            ),
+          );
+        }
+      } catch (_) {
+        // Ignore one corrupt local entry instead of losing all history.
+      }
+    }
+
+    records.sort((a, b) => b.performedAt.compareTo(a.performedAt));
+    return records;
+  }
+
+  Future<ExerciseSetPerformance?> _latestLocalForExercise(
+    String exerciseName,
+  ) async {
+    final lower = exerciseName.trim().toLowerCase();
+    for (final record in await _loadLocal()) {
+      if (record.exerciseName.toLowerCase() == lower) return record;
+    }
+    return null;
+  }
+
+  String _signature(ExerciseSetPerformance record) {
+    return [
+      record.workoutTitle,
+      record.exerciseName,
+      record.setNumber,
+      record.reps,
+      record.weightKg,
+      record.durationSeconds,
+      record.performedAt.toUtc().toIso8601String(),
+    ].join('|');
   }
 }
