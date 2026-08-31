@@ -79,6 +79,7 @@ class CustomWorkout {
         'target': exercise.target,
         'visual_asset': exercise.visualAsset,
         'metric_label': exercise.metricLabel,
+        'superset_id': exercise.supersetId,
       };
 
   static ExercisePrescription _exerciseFromJson(Map<String, dynamic> json) {
@@ -91,6 +92,7 @@ class CustomWorkout {
       target: json['target']?.toString() ?? 'General fitness',
       visualAsset: json['visual_asset']?.toString(),
       metricLabel: json['metric_label']?.toString(),
+      supersetId: json['superset_id']?.toString(),
     );
   }
 }

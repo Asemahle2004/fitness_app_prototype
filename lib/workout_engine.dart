@@ -7,6 +7,7 @@ class ExercisePrescription {
   final String target;
   final String? visualAsset;
   final String? metricLabel;
+  final String? supersetId;
 
   const ExercisePrescription({
     required this.name,
@@ -17,7 +18,33 @@ class ExercisePrescription {
     required this.target,
     this.visualAsset,
     this.metricLabel,
+    this.supersetId,
   });
+
+  ExercisePrescription copyWith({
+    String? name,
+    int? sets,
+    String? reps,
+    String? rest,
+    String? equipment,
+    String? target,
+    String? visualAsset,
+    String? metricLabel,
+    String? supersetId,
+    bool clearSuperset = false,
+  }) {
+    return ExercisePrescription(
+      name: name ?? this.name,
+      sets: sets ?? this.sets,
+      reps: reps ?? this.reps,
+      rest: rest ?? this.rest,
+      equipment: equipment ?? this.equipment,
+      target: target ?? this.target,
+      visualAsset: visualAsset ?? this.visualAsset,
+      metricLabel: metricLabel ?? this.metricLabel,
+      supersetId: clearSuperset ? null : (supersetId ?? this.supersetId),
+    );
+  }
 
   bool get isSingleDurationBlock {
     if (sets != 1) return false;

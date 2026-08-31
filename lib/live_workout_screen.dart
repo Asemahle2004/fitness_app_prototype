@@ -7,6 +7,7 @@ import 'exercise_media.dart';
 import 'exercise_performance_store.dart';
 import 'exercise_swap_service.dart';
 import 'progression_engine.dart';
+import 'superset_engine.dart';
 import 'training_store.dart';
 import 'workout_editor_screen.dart';
 import 'workout_engine.dart';
@@ -59,8 +60,11 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
   bool _finishingSet = false;
   bool _swapping = false;
   bool _editingWorkout = false;
+  int? _nextIndexAfterRest;
+  int _activeRestSeconds = 0;
 
   late final List<ExercisePrescription> _sessionExercises;
+  late List<int> _completedSetsByExercise;
   late final ExercisePerformanceStore _performanceStore;
   late final ExerciseSwapService _swapService;
 
@@ -88,7 +92,8 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
   @override
   void initState() {
     super.initState();
-    _sessionExercises = List<ExercisePrescription>.from(widget.workout.exercises);
+    _sessionExercises = SupersetEngine.normalize(widget.workout.exercises);
+    _completedSetsByExercise = List<int>.filled(_sessionExercises.length, 0);
     final client = Supabase.instance.client;
     _performanceStore = ExercisePerformanceStore(client);
     _swapService = ExerciseSwapService(client);
@@ -112,8 +117,8 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
     super.dispose();
   }
 
-  void _resetCurrentExerciseState() {
-    currentSet = 1;
+  void _resetCurrentExerciseState({int setNumber = 1}) {
+    currentSet = setNumber;
     phase = LivePhase.ready;
     displayedRep = 0;
     targetReps = _defaultRepTarget(currentExercise);
@@ -252,6 +257,55 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
       ),
     );
 
+    _completedSetsByExercise[currentIndex] =
+        (_completedSetsByExercise[currentIndex] + 1).clamp(0, exercise.sets);
+
+    if (SupersetEngine.hasValidPair(_sessionExercises, currentIndex)) {
+      if (_completedSetsByExercise[currentIndex] == exercise.sets) {
+        completedExercises += 1;
+      }
+      _finishingSet = false;
+
+      final immediate = SupersetEngine.immediateNextAfterSet(
+        exercises: _sessionExercises,
+        completedSets: _completedSetsByExercise,
+        currentIndex: currentIndex,
+      );
+      if (immediate != null) {
+        _switchToExercise(immediate);
+        return;
+      }
+
+      final nextRound = SupersetEngine.nextRoundMember(
+        exercises: _sessionExercises,
+        completedSets: _completedSetsByExercise,
+        currentIndex: currentIndex,
+      );
+      if (nextRound != null) {
+        _startRest(
+          nextIndex: nextRound,
+          secondsOverride: _supersetRestSeconds(currentIndex),
+        );
+        return;
+      }
+
+      final afterPair = SupersetEngine.indexAfterPair(
+        _sessionExercises,
+        currentIndex,
+      );
+      if (afterPair != null) {
+        _startRest(
+          nextIndex: afterPair,
+          secondsOverride: _supersetRestSeconds(currentIndex),
+        );
+        return;
+      }
+
+      setState(() => phase = LivePhase.ready);
+      unawaited(_saveHistory());
+      return;
+    }
+
     final hasMoreSets = currentSet < currentExercise.sets;
     final hasMoreExercises = currentIndex < _sessionExercises.length - 1;
 
@@ -285,8 +339,10 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
     }
   }
 
-  void _startRest() {
-    final seconds = _parseRestSeconds(currentExercise.rest);
+  void _startRest({int? nextIndex, int? secondsOverride}) {
+    _nextIndexAfterRest = nextIndex;
+    final seconds = secondsOverride ?? _parseRestSeconds(currentExercise.rest);
+    _activeRestSeconds = seconds;
     if (seconds <= 0) {
       _advanceAfterRest();
       return;
@@ -315,6 +371,12 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
 
   void _advanceAfterRest() {
     _tickTimer?.cancel();
+    final requestedIndex = _nextIndexAfterRest;
+    _nextIndexAfterRest = null;
+    if (requestedIndex != null) {
+      _switchToExercise(requestedIndex);
+      return;
+    }
     if (currentSet < currentExercise.sets) {
       setState(() {
         currentSet += 1;
@@ -326,6 +388,28 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
       return;
     }
     _finishExerciseAndAdvance();
+  }
+
+  void _switchToExercise(int index) {
+    if (index < 0 || index >= _sessionExercises.length) return;
+    setState(() {
+      currentIndex = index;
+      _resetCurrentExerciseState(
+        setNumber: _completedSetsByExercise[index] + 1,
+      );
+    });
+    unawaited(_loadPreviousPerformance(currentExercise.name));
+  }
+
+  int _supersetRestSeconds(int index) {
+    final members = SupersetEngine.membersFor(_sessionExercises, index);
+    if (members.length != 2) return _parseRestSeconds(currentExercise.rest);
+    var seconds = 0;
+    for (final member in members) {
+      final parsed = _parseRestSeconds(_sessionExercises[member].rest);
+      if (parsed > seconds) seconds = parsed;
+    }
+    return seconds > 0 ? seconds : 60;
   }
 
   void _finishExerciseAndAdvance() {
@@ -368,8 +452,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
       restSecondsRemaining = (restSecondsRemaining + delta).clamp(0, 600);
       _phaseStartedAt = DateTime.now().subtract(
         Duration(
-          seconds: _parseRestSeconds(currentExercise.rest) -
-              restSecondsRemaining,
+          seconds: _activeRestSeconds - restSecondsRemaining,
         ),
       );
     });
@@ -408,6 +491,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
         ..addAll(edited.exercises);
       currentIndex = 0;
       completedExercises = 0;
+      _completedSetsByExercise = List<int>.filled(_sessionExercises.length, 0);
       _resetCurrentExerciseState();
     });
     unawaited(_loadPreviousPerformance(currentExercise.name));
@@ -565,10 +649,14 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
     if (selected == null || !mounted) return;
 
     final previousName = currentExercise.name;
-    final replacement = selected.exercise;
+    final replacement = selected.exercise.copyWith(
+      supersetId: currentExercise.supersetId,
+    );
     setState(() {
       _sessionExercises[currentIndex] = replacement;
-      _resetCurrentExerciseState();
+      _resetCurrentExerciseState(
+        setNumber: _completedSetsByExercise[currentIndex] + 1,
+      );
     });
     unawaited(_loadPreviousPerformance(replacement.name));
     unawaited(
@@ -739,6 +827,13 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
                       ),
                     ),
                     const SizedBox(height: 14),
+                    if (SupersetEngine.hasValidPair(
+                      _sessionExercises,
+                      currentIndex,
+                    )) ...[
+                      _supersetBanner(),
+                      const SizedBox(height: 12),
+                    ],
                     _previousPerformanceCard(),
                     if (_progressionSuggestion != null) ...[
                       const SizedBox(height: 10),
@@ -842,6 +937,39 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
                 ),
               ),
             ),
+        ],
+      ),
+    );
+  }
+
+  Widget _supersetBanner() {
+    final label = SupersetEngine.positionLabel(_sessionExercises, currentIndex);
+    final partner = SupersetEngine.partnerName(_sessionExercises, currentIndex);
+    final isFirst = label == 'A';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEAF7FA),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFB9E2EA)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.link_rounded, color: Color(0xFF176B87)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              isFirst
+                  ? 'SUPERSET A • Next: $partner • no rest between exercises'
+                  : 'SUPERSET B • Rest after this set, then repeat the pair',
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF176B87),
+              ),
+            ),
+          ),
         ],
       ),
     );

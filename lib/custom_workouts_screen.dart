@@ -7,6 +7,7 @@ import 'exercise_repository.dart';
 import 'live_workout_screen.dart';
 import 'profile_service.dart';
 import 'safety_engine.dart';
+import 'superset_engine.dart';
 import 'workout_editor_screen.dart';
 import 'workout_engine.dart';
 
@@ -481,7 +482,13 @@ class _CustomWorkoutBuilderScreenState
       );
       return;
     }
-    setState(() => _exercises.addAll(additions));
+    setState(() {
+      _exercises.addAll(additions);
+      final normalized = SupersetEngine.normalize(_exercises);
+      _exercises
+        ..clear()
+        ..addAll(normalized);
+    });
   }
 
   void _reorder(int oldIndex, int newIndex) {
@@ -489,11 +496,33 @@ class _CustomWorkoutBuilderScreenState
       if (newIndex > oldIndex) newIndex -= 1;
       final exercise = _exercises.removeAt(oldIndex);
       _exercises.insert(newIndex, exercise);
+      final normalized = SupersetEngine.normalize(_exercises);
+      _exercises
+        ..clear()
+        ..addAll(normalized);
     });
   }
 
   void _remove(int index) {
-    setState(() => _exercises.removeAt(index));
+    setState(() {
+      _exercises.removeAt(index);
+      final normalized = SupersetEngine.normalize(_exercises);
+      _exercises
+        ..clear()
+        ..addAll(normalized);
+    });
+  }
+
+  void _toggleSuperset(int index) {
+    setState(() {
+      final paired = SupersetEngine.hasValidPair(_exercises, index);
+      final next = paired
+          ? SupersetEngine.unpairAt(_exercises, index)
+          : SupersetEngine.pairWithNext(_exercises, index);
+      _exercises
+        ..clear()
+        ..addAll(next);
+    });
   }
 
   Future<void> _editPrescription(int index) async {
@@ -563,6 +592,7 @@ class _CustomWorkoutBuilderScreenState
                   target: current.target,
                   visualAsset: current.visualAsset,
                   metricLabel: current.metricLabel,
+                  supersetId: current.supersetId,
                 ),
               );
             },
@@ -603,7 +633,9 @@ class _CustomWorkoutBuilderScreenState
       name: name,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
-      exercises: List<ExercisePrescription>.unmodifiable(_exercises),
+      exercises: List<ExercisePrescription>.unmodifiable(
+        SupersetEngine.normalize(_exercises),
+      ),
     );
     await widget.store.save(workout);
     if (!mounted) return;
@@ -732,10 +764,44 @@ class _CustomWorkoutBuilderScreenState
                                   ),
                                 ),
                               ),
-                              IconButton(
-                                tooltip: 'Remove exercise',
-                                onPressed: () => _remove(index),
-                                icon: const Icon(Icons.delete_outline_rounded),
+                              Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (SupersetEngine.hasValidPair(_exercises, index))
+                                    Text(
+                                      'SS ${SupersetEngine.positionLabel(_exercises, index)}',
+                                      style: const TextStyle(
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w900,
+                                        color: Color(0xFF176B87),
+                                      ),
+                                    ),
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      if (SupersetEngine.hasValidPair(_exercises, index) ||
+                                          (index < _exercises.length - 1 &&
+                                              _exercises[index].supersetId == null &&
+                                              _exercises[index + 1].supersetId == null))
+                                        IconButton(
+                                          tooltip: SupersetEngine.hasValidPair(_exercises, index)
+                                              ? 'Remove superset'
+                                              : 'Pair with next exercise',
+                                          onPressed: () => _toggleSuperset(index),
+                                          icon: Icon(
+                                            SupersetEngine.hasValidPair(_exercises, index)
+                                                ? Icons.link_off_rounded
+                                                : Icons.link_rounded,
+                                          ),
+                                        ),
+                                      IconButton(
+                                        tooltip: 'Remove exercise',
+                                        onPressed: () => _remove(index),
+                                        icon: const Icon(Icons.delete_outline_rounded),
+                                      ),
+                                    ],
+                                  ),
+                                ],
                               ),
                             ],
                           ),
