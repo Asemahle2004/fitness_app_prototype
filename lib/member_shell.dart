@@ -6,6 +6,7 @@ import 'exercise_library_screen.dart';
 import 'lean_eat_theme.dart';
 import 'progress_screen.dart';
 import 'readiness_screen.dart';
+import 'today_dashboard.dart';
 
 class LeanEatMemberShell extends StatefulWidget {
   final Widget programmeHome;
@@ -23,7 +24,7 @@ class _LeanEatMemberShellState extends State<LeanEatMemberShell> {
   int _index = 0;
 
   late final List<Widget> _pages = [
-    widget.programmeHome,
+    LeanEatTodayDashboard(fallbackProgrammeHome: widget.programmeHome),
     ExerciseLibraryScreen(client: Supabase.instance.client),
     const ReadinessScreen(),
     const ProgressScreen(),
