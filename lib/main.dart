@@ -13,6 +13,7 @@ import 'auth_gate.dart';
 import 'lean_eat_theme.dart';
 import 'profile_service.dart';
 import 'account_screen.dart';
+import 'member_shell.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 Future<void> main() async {
@@ -44,21 +45,23 @@ class FitnessApp extends StatelessWidget {
       theme: leanEatTheme(),
       home: LeanEatAuthGate(
         onboardingHome: const WelcomeScreen(),
-        completedHomeBuilder: (profile) => ProgrammeReadyScreen(
-          goal: profile['main_goal']?.toString() ?? 'Improve General Fitness',
-          experience: profile['experience']?.toString() ?? 'Beginner',
-          fitnessLevel: profile['fitness_level']?.toString() ?? 'Low',
-          availableDays: _profileStringSet(profile['available_days']),
-          locations: _profileStringSet(profile['training_locations']),
-          homeEquipment: _profileStringSet(profile['home_equipment']),
-          gymAccess: profile['gym_access']?.toString(),
-          sessionLength: profile['session_length']?.toString() ?? '45 min',
-          trainingTime: profile['training_time']?.toString() ?? 'Flexible',
-          hasLimitation: profile['has_limitation'] == true,
-          affectedAreas: _profileStringSet(profile['affected_areas']),
-          limitationNotes: profile['limitation_notes']?.toString() ?? '',
-          warningSigns: _profileStringSet(profile['warning_signs']),
-          isMemberHome: true,
+        completedHomeBuilder: (profile) => LeanEatMemberShell(
+          programmeHome: ProgrammeReadyScreen(
+            goal: profile['main_goal']?.toString() ?? 'Improve General Fitness',
+            experience: profile['experience']?.toString() ?? 'Beginner',
+            fitnessLevel: profile['fitness_level']?.toString() ?? 'Low',
+            availableDays: _profileStringSet(profile['available_days']),
+            locations: _profileStringSet(profile['training_locations']),
+            homeEquipment: _profileStringSet(profile['home_equipment']),
+            gymAccess: profile['gym_access']?.toString(),
+            sessionLength: profile['session_length']?.toString() ?? '45 min',
+            trainingTime: profile['training_time']?.toString() ?? 'Flexible',
+            hasLimitation: profile['has_limitation'] == true,
+            affectedAreas: _profileStringSet(profile['affected_areas']),
+            limitationNotes: profile['limitation_notes']?.toString() ?? '',
+            warningSigns: _profileStringSet(profile['warning_signs']),
+            isMemberHome: true,
+          ),
         ),
       ),
     );
