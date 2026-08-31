@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'exercise_repository.dart';
-import 'movement_visual.dart';
+import 'exercise_media.dart';
 import 'safety_engine.dart';
 
 class ExerciseLibraryScreen extends StatefulWidget {
@@ -289,31 +289,15 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
                                       SizedBox(
                                         width: 82,
                                         height: 82,
-                                        child: exercise.imagePath != null &&
-                                                exercise.imagePath!.isNotEmpty
-                                            ? ClipRRect(
-                                                borderRadius:
-                                                    BorderRadius.circular(12),
-                                                child: Image.network(
-                                                  _repository.publicImageUrl(
-                                                    exercise.imagePath!,
-                                                  ),
-                                                  fit: BoxFit.cover,
-                                                  errorBuilder: (_, __, ___) =>
-                                                      MovementVisual(
-                                                    exerciseName: exercise.name,
-                                                    movementPattern:
-                                                        exercise.movementPattern,
-                                                    compact: true,
-                                                  ),
-                                                ),
-                                              )
-                                            : MovementVisual(
-                                                exerciseName: exercise.name,
-                                                movementPattern:
-                                                    exercise.movementPattern,
-                                                compact: true,
-                                              ),
+                                        child: ClipRRect(
+                                          borderRadius: BorderRadius.circular(12),
+                                          child: ExerciseMedia(
+                                            exerciseName: exercise.name,
+                                            movementPattern: exercise.movementPattern,
+                                            fit: BoxFit.cover,
+                                            compact: true,
+                                          ),
+                                        ),
                                       ),
                                       const SizedBox(width: 14),
                                       Expanded(
@@ -504,19 +488,11 @@ class LibraryExerciseDetailScreen extends StatelessWidget {
             height: 320,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(22),
-              child: exercise.imagePath != null && exercise.imagePath!.isNotEmpty
-                  ? Image.network(
-                      repository.publicImageUrl(exercise.imagePath!),
-                      fit: BoxFit.contain,
-                      errorBuilder: (_, __, ___) => MovementVisual(
-                        exerciseName: exercise.name,
-                        movementPattern: exercise.movementPattern,
-                      ),
-                    )
-                  : MovementVisual(
-                      exerciseName: exercise.name,
-                      movementPattern: exercise.movementPattern,
-                    ),
+              child: ExerciseMedia(
+                  exerciseName: exercise.name,
+                  movementPattern: exercise.movementPattern,
+                  fit: BoxFit.contain,
+                ),
             ),
           ),
           const SizedBox(height: 24),

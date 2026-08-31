@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'exercise_media.dart';
-import 'movement_visual.dart';
 import 'training_store.dart';
 import 'workout_engine.dart';
 
