@@ -12,6 +12,12 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
         raise SystemExit(f'{label}: expected 1 match, found {count}')
     return text.replace(old, new, 1)
 
+
+def replace_first(text: str, old: str, new: str, label: str) -> str:
+    if old not in text:
+        raise SystemExit(f'{label}: no match')
+    return text.replace(old, new, 1)
+
 # ---------- main.dart ----------
 main = replace_once(
     main,
@@ -52,22 +58,24 @@ main = replace_once(
     'persist warning signs',
 )
 
-# ProgrammeReadyScreen: add member-home state.
-marker = 'class ProgrammeReadyScreen extends StatelessWidget {'
-pos = main.find(marker)
-if pos < 0:
-    raise SystemExit('ProgrammeReadyScreen not found')
-head, tail = main[:pos], main[pos:]
+# Restrict ProgrammeReady edits to that class only.
+start = main.find('class ProgrammeReadyScreen extends StatelessWidget {')
+end = main.find('class WorkoutDetailScreen', start)
+if start < 0 or end < 0:
+    raise SystemExit('Could not isolate ProgrammeReadyScreen')
+head = main[:start]
+section = main[start:end]
+tail = main[end:]
 
-tail = replace_once(
-    tail,
+section = replace_first(
+    section,
     "final Set<String> warningSigns;\n\n  const ProgrammeReadyScreen({",
     "final Set<String> warningSigns;\n  final bool isMemberHome;\n\n  const ProgrammeReadyScreen({",
     'member home field',
 )
 
-tail = replace_once(
-    tail,
+section = replace_first(
+    section,
     "required this.warningSigns,\n  });",
     "required this.warningSigns,\n    this.isMemberHome = false,\n  });",
     'member home constructor',
@@ -129,16 +137,16 @@ new_appbar = """appBar: AppBar(
               ]
             : null,
       ),"""
-tail = replace_once(tail, old_appbar, new_appbar, 'ProgrammeReady app bar')
+section = replace_first(section, old_appbar, new_appbar, 'ProgrammeReady app bar')
 
-tail = replace_once(
-    tail,
+section = replace_first(
+    section,
     "const Text(\n                      'Your programme is ready',",
     "Text(\n                      isMemberHome ? 'Your programme' : 'Your programme is ready',",
     'programme home heading',
 )
 
-main = head + tail
+main = head + section + tail
 
 # ---------- account_screen.dart ----------
 account = replace_once(
