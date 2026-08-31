@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'exercise_media.dart';
 import 'exercise_performance_store.dart';
+import 'exercise_swap_service.dart';
 import 'training_store.dart';
 import 'workout_engine.dart';
 
@@ -54,8 +55,12 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
 
   bool _historySaved = false;
   bool _finishingSet = false;
+  bool _swapping = false;
 
+  late final List<ExercisePrescription> _sessionExercises;
   late final ExercisePerformanceStore _performanceStore;
+  late final ExerciseSwapService _swapService;
+
   final TextEditingController _weightController = TextEditingController();
   ExerciseSetPerformance? _previousPerformance;
   bool _performanceLoading = false;
@@ -63,23 +68,28 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
   String? _lastSavedSummary;
 
   bool get isComplete =>
-      widget.workout.exercises.isNotEmpty &&
-      completedExercises >= widget.workout.exercises.length;
+      _sessionExercises.isNotEmpty &&
+      completedExercises >= _sessionExercises.length;
 
-  ExercisePrescription get currentExercise =>
-      widget.workout.exercises[currentIndex];
+  ExercisePrescription get currentExercise => _sessionExercises[currentIndex];
 
   bool get currentIsTimed => _isTimedExercise(currentExercise);
 
   @override
   void initState() {
     super.initState();
-    _performanceStore = ExercisePerformanceStore(Supabase.instance.client);
-    _resetCurrentExerciseState();
-    unawaited(_loadPreviousPerformance(currentExercise.name));
+    _sessionExercises = List<ExercisePrescription>.from(widget.workout.exercises);
+    final client = Supabase.instance.client;
+    _performanceStore = ExercisePerformanceStore(client);
+    _swapService = ExerciseSwapService(client);
+
+    if (_sessionExercises.isNotEmpty) {
+      _resetCurrentExerciseState();
+      unawaited(_loadPreviousPerformance(currentExercise.name));
+    }
 
     _workoutTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted || isComplete) return;
+      if (!mounted || isComplete || _sessionExercises.isEmpty) return;
       setState(() => workoutSeconds += 1);
     });
   }
@@ -110,7 +120,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
   Future<void> _loadPreviousPerformance(String exerciseName) async {
     try {
       final previous = await _performanceStore.latestForExercise(exerciseName);
-      if (!mounted || currentExercise.name != exerciseName) return;
+      if (!mounted || isComplete || currentExercise.name != exerciseName) return;
       setState(() {
         _previousPerformance = previous;
         _performanceLoading = false;
@@ -122,7 +132,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
         }
       });
     } catch (_) {
-      if (!mounted || currentExercise.name != exerciseName) return;
+      if (!mounted || isComplete || currentExercise.name != exerciseName) return;
       setState(() => _performanceLoading = false);
     }
   }
@@ -142,7 +152,9 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
     setState(() {
       phase = LivePhase.active;
       displayedRep = 0;
-      targetReps = targetReps <= 0 ? _defaultRepTarget(currentExercise) : targetReps;
+      targetReps = targetReps <= 0
+          ? _defaultRepTarget(currentExercise)
+          : targetReps;
       workSecondsTarget = workSecondsTarget <= 0
           ? _defaultWorkSeconds(currentExercise)
           : workSecondsTarget;
@@ -215,7 +227,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
     );
 
     final hasMoreSets = currentSet < currentExercise.sets;
-    final hasMoreExercises = currentIndex < widget.workout.exercises.length - 1;
+    final hasMoreExercises = currentIndex < _sessionExercises.length - 1;
 
     _finishingSet = false;
 
@@ -243,7 +255,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
         durationSeconds: durationSeconds,
       );
     } catch (_) {
-      // Workout flow continues if cloud logging is temporarily unavailable.
+      // Workout flow continues if local/cloud logging has a temporary issue.
     }
   }
 
@@ -294,7 +306,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
     _tickTimer?.cancel();
     completedExercises += 1;
 
-    if (completedExercises >= widget.workout.exercises.length) {
+    if (completedExercises >= _sessionExercises.length) {
       setState(() => phase = LivePhase.ready);
       unawaited(_saveHistory());
       return;
@@ -316,7 +328,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
         completedAt: DateTime.now(),
         durationSeconds: workoutSeconds,
         completedSets: completedSets,
-        exercises: widget.workout.exercises
+        exercises: _sessionExercises
             .map((exercise) => exercise.name)
             .toList(growable: false),
       ),
@@ -342,9 +354,208 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
     unawaited(_finishSet());
   }
 
+  Future<void> _openSwapFlow() async {
+    if (_swapping || phase != LivePhase.ready || currentSet != 1) return;
+
+    final reason = await showModalBottomSheet<ExerciseSwapReason>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Why replace this exercise?',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF102A43),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'LeanIt uses the reason to rank safer and more useful alternatives.',
+                  style: TextStyle(color: Color(0xFF627D98)),
+                ),
+                const SizedBox(height: 12),
+                ...ExerciseSwapReason.values.map(
+                  (item) => ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(_swapReasonIcon(item)),
+                    title: Text(item.label),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => Navigator.pop(sheetContext, item),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    if (reason == null || !mounted) return;
+
+    setState(() => _swapping = true);
+    ExerciseSwapResult result;
+    try {
+      result = await _swapService.suggestions(
+        current: currentExercise,
+        sessionExercises: _sessionExercises,
+        reason: reason,
+      );
+    } catch (_) {
+      result = const ExerciseSwapResult(
+        suggestions: [],
+        message: 'LeanIt could not load replacement options right now.',
+      );
+    }
+    if (!mounted) return;
+    setState(() => _swapping = false);
+
+    if (result.blocked || result.suggestions.isEmpty) {
+      await _showSwapMessage(
+        result.message ?? 'No suitable replacement was found.',
+        warning: result.blocked,
+      );
+      return;
+    }
+
+    final selected = await showModalBottomSheet<ExerciseSwapSuggestion>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.72,
+          minChildSize: 0.45,
+          maxChildSize: 0.92,
+          builder: (context, controller) {
+            return ListView(
+              controller: controller,
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+              children: [
+                Text(
+                  'Replace ${currentExercise.name}',
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF102A43),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Reason: ${reason.label}',
+                  style: const TextStyle(color: Color(0xFF627D98)),
+                ),
+                const SizedBox(height: 14),
+                ...result.suggestions.map(
+                  (suggestion) => Card(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.all(14),
+                      leading: const CircleAvatar(
+                        backgroundColor: Color(0xFFE5F4F8),
+                        child: Icon(
+                          Icons.swap_horiz_rounded,
+                          color: Color(0xFF176B87),
+                        ),
+                      ),
+                      title: Text(
+                        suggestion.exercise.name,
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          [
+                            suggestion.exercise.target,
+                            suggestion.exercise.equipment,
+                            if (suggestion.reasons.isNotEmpty)
+                              suggestion.reasons.join(' • '),
+                          ].join('\n'),
+                        ),
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => Navigator.pop(sheetContext, suggestion),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (selected == null || !mounted) return;
+
+    final previousName = currentExercise.name;
+    final replacement = selected.exercise;
+    setState(() {
+      _sessionExercises[currentIndex] = replacement;
+      _resetCurrentExerciseState();
+    });
+    unawaited(_loadPreviousPerformance(replacement.name));
+    unawaited(
+      _swapService.saveSwap(
+        workoutTitle: widget.workout.title,
+        fromExercise: previousName,
+        toExercise: replacement.name,
+        reason: reason,
+      ),
+    );
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$previousName replaced with ${replacement.name}.'),
+      ),
+    );
+  }
+
+  Future<void> _showSwapMessage(String message, {bool warning = false}) {
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: Icon(
+          warning ? Icons.health_and_safety_outlined : Icons.info_outline,
+          color: warning ? const Color(0xFF9A6700) : const Color(0xFF176B87),
+        ),
+        title: Text(warning ? 'Safety check' : 'No replacement available'),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  IconData _swapReasonIcon(ExerciseSwapReason reason) {
+    switch (reason) {
+      case ExerciseSwapReason.equipmentUnavailable:
+        return Icons.fitness_center_outlined;
+      case ExerciseSwapReason.tooDifficult:
+        return Icons.trending_down_rounded;
+      case ExerciseSwapReason.painDiscomfort:
+        return Icons.health_and_safety_outlined;
+      case ExerciseSwapReason.dislike:
+        return Icons.thumb_down_alt_outlined;
+      case ExerciseSwapReason.variation:
+        return Icons.shuffle_rounded;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final exercises = widget.workout.exercises;
+    final exercises = _sessionExercises;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7F9FC),
@@ -368,7 +579,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
   }
 
   Widget _activeView(ExercisePrescription exercise) {
-    final total = widget.workout.exercises.length;
+    final total = _sessionExercises.length;
     final progress = completedExercises / total;
 
     return Padding(
@@ -482,7 +693,27 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
+          if (phase == LivePhase.ready && currentSet == 1)
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _swapping ? null : _openSwapFlow,
+                icon: _swapping
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.swap_horiz_rounded),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(50),
+                ),
+                label: Text(_swapping ? 'FINDING ALTERNATIVES…' : 'REPLACE EXERCISE'),
+              ),
+            ),
+          if (phase == LivePhase.ready && currentSet == 1)
+            const SizedBox(height: 10),
           if (phase == LivePhase.active)
             SizedBox(
               width: double.infinity,
@@ -498,7 +729,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
-                onPressed: _startSet,
+                onPressed: _swapping ? null : _startSet,
                 icon: const Icon(Icons.play_arrow_rounded),
                 style: ElevatedButton.styleFrom(
                   minimumSize: const Size.fromHeight(58),
@@ -544,7 +775,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
           borderRadius: BorderRadius.circular(16),
         ),
         child: const Text(
-          'First logged session for this exercise. LeanEat will remember today’s sets for next time.',
+          'First logged session for this exercise. LeanIt will remember today’s sets for next time.',
           style: TextStyle(
             fontSize: 13,
             height: 1.4,
@@ -699,7 +930,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
             ),
             const SizedBox(height: 10),
             const Text(
-              'When the set finishes, LeanEat saves the completed reps and optional load to your account.',
+              'When the set finishes, LeanIt saves the completed reps and optional load to your history.',
               style: TextStyle(
                 fontSize: 12,
                 height: 1.4,
@@ -789,8 +1020,8 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
 
   Widget _restView() {
     final nextSet = currentSet < currentExercise.sets;
-    final nextExercise = currentIndex < widget.workout.exercises.length - 1
-        ? widget.workout.exercises[currentIndex + 1].name
+    final nextExercise = currentIndex < _sessionExercises.length - 1
+        ? _sessionExercises[currentIndex + 1].name
         : 'Workout complete';
 
     return LayoutBuilder(
@@ -925,7 +1156,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
             ),
             const SizedBox(height: 10),
             Text(
-              '${widget.workout.exercises.length} exercises • $completedSets sets • ${_formatClock(workoutSeconds)}',
+              '${_sessionExercises.length} exercises • $completedSets sets • ${_formatClock(workoutSeconds)}',
               textAlign: TextAlign.center,
               style: const TextStyle(
                 fontSize: 16,
@@ -934,7 +1165,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Your completed set performance has been saved to your LeanEat account.',
+              'Your completed set performance has been saved to LeanIt history.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 14,
