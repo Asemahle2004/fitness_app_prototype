@@ -22,6 +22,9 @@ jobs:
       - name: Apply superset patch
         run: python tools/apply_superset_patch.py
 
+      - name: Apply integer counter fix
+        run: python tools/fix_superset_int.py
+
       - name: Commit generated integration
         run: |
           if git diff --quiet; then
