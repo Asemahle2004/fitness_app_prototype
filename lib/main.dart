@@ -28,6 +28,11 @@ Future<void> main() async {
 
 final supabase = Supabase.instance.client;
 
+Set<String> _profileStringSet(dynamic value) {
+  if (value is! List) return <String>{};
+  return value.whereType<String>().toSet();
+}
+
 class FitnessApp extends StatelessWidget {
   const FitnessApp({super.key});
 
@@ -37,7 +42,25 @@ class FitnessApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'LeanEat',
       theme: leanEatTheme(),
-      home: const LeanEatAuthGate(signedInHome: WelcomeScreen()),
+      home: LeanEatAuthGate(
+        onboardingHome: const WelcomeScreen(),
+        completedHomeBuilder: (profile) => ProgrammeReadyScreen(
+          goal: profile['main_goal']?.toString() ?? 'Improve General Fitness',
+          experience: profile['experience']?.toString() ?? 'Beginner',
+          fitnessLevel: profile['fitness_level']?.toString() ?? 'Low',
+          availableDays: _profileStringSet(profile['available_days']),
+          locations: _profileStringSet(profile['training_locations']),
+          homeEquipment: _profileStringSet(profile['home_equipment']),
+          gymAccess: profile['gym_access']?.toString(),
+          sessionLength: profile['session_length']?.toString() ?? '45 min',
+          trainingTime: profile['training_time']?.toString() ?? 'Flexible',
+          hasLimitation: profile['has_limitation'] == true,
+          affectedAreas: _profileStringSet(profile['affected_areas']),
+          limitationNotes: profile['limitation_notes']?.toString() ?? '',
+          warningSigns: _profileStringSet(profile['warning_signs']),
+          isMemberHome: true,
+        ),
+      ),
     );
   }
 }
@@ -3234,6 +3257,7 @@ class ProfileReviewScreen extends StatelessWidget {
                       'has_limitation': hasLimitation,
                       'affected_areas': affectedAreas.toList(),
                       'limitation_notes': limitationNotes,
+                      'warning_signs': warningSigns.toList(),
                       'visual_preference': 'Match profile',
                       'onboarding_complete': true,
                     });
@@ -3317,6 +3341,7 @@ class ProgrammeReadyScreen extends StatelessWidget {
   final Set<String> affectedAreas;
   final String limitationNotes;
   final Set<String> warningSigns;
+  final bool isMemberHome;
 
   const ProgrammeReadyScreen({
     super.key,
@@ -3333,6 +3358,7 @@ class ProgrammeReadyScreen extends StatelessWidget {
     required this.affectedAreas,
     required this.limitationNotes,
     required this.warningSigns,
+    this.isMemberHome = false,
   });
 
   @override
@@ -3359,12 +3385,48 @@ class ProgrammeReadyScreen extends StatelessWidget {
       appBar: AppBar(
         backgroundColor: const Color(0xFFF7F9FC),
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Color(0xFF102A43)),
-          onPressed: () {
-            Navigator.pop(context);
-          },
-        ),
+        automaticallyImplyLeading: !isMemberHome,
+        leading: isMemberHome
+            ? null
+            : IconButton(
+                icon: const Icon(Icons.arrow_back, color: Color(0xFF102A43)),
+                onPressed: () => Navigator.pop(context),
+              ),
+        title: isMemberHome
+            ? const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  LeanEatLogo(size: 30, showWordmark: false),
+                  SizedBox(width: 10),
+                  Text('LeanEat'),
+                ],
+              )
+            : null,
+        actions: isMemberHome
+            ? [
+                IconButton(
+                  tooltip: 'Progress',
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const ProgressScreen()),
+                    );
+                  },
+                  icon: const Icon(Icons.insights_outlined),
+                ),
+                IconButton(
+                  tooltip: 'Account',
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const LeanEatAccountScreen()),
+                    );
+                  },
+                  icon: const Icon(Icons.person_outline_rounded),
+                ),
+                const SizedBox(width: 6),
+              ]
+            : null,
       ),
 
       body: SafeArea(
@@ -3395,8 +3457,8 @@ class ProgrammeReadyScreen extends StatelessWidget {
 
                     const SizedBox(height: 24),
 
-                    const Text(
-                      'Your programme is ready',
+                    Text(
+                      isMemberHome ? 'Your programme' : 'Your programme is ready',
                       style: TextStyle(
                         fontSize: 30,
                         fontWeight: FontWeight.bold,

@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'lean_eat_theme.dart';
 import 'profile_service.dart';
+import 'training_profile_edit_screen.dart';
 
 class LeanEatAccountScreen extends StatefulWidget {
   const LeanEatAccountScreen({super.key});
@@ -221,6 +222,27 @@ class _LeanEatAccountScreenState extends State<LeanEatAccountScreen> {
                   title: 'Training profile',
                   child: Column(
                     children: [
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: () async {
+                            final changed = await Navigator.push<bool>(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const TrainingProfileEditScreen(),
+                              ),
+                            );
+                            if (changed == true && mounted) {
+                              setState(() => _profileFuture = _loadProfile());
+                            }
+                          },
+                          icon: const Icon(Icons.tune_rounded),
+                          label: const Text('EDIT TRAINING PROFILE'),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      const Divider(height: 1),
+                      const SizedBox(height: 16),
                       _fact(Icons.flag_outlined, 'Goal', profile['main_goal']?.toString() ?? 'Not set'),
                       _fact(Icons.person_outline, 'Sex', profile['sex']?.toString() ?? 'Not set'),
                       _fact(Icons.speed_outlined, 'Level', profile['fitness_level']?.toString() ?? 'Not set'),
