@@ -1,0 +1,35 @@
+name: Apply body progress integration
+
+on:
+  push:
+    branches:
+      - feature/body-progress
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[body-progress-applied]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/body-progress
+          fetch-depth: 0
+
+      - name: Apply body progress patch
+        run: python tools/apply_body_progress_patch.py
+
+      - name: Commit generated integration
+        run: |
+          if git diff --quiet; then
+            echo "No body progress changes required."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/progress_screen.dart
+          git commit -m "Wire body progress into Progress screen [body-progress-applied]"
+          git push origin HEAD:feature/body-progress
