@@ -85,7 +85,7 @@ class WorkoutCalendarEngine {
     final elapsedDays = effectiveLast.isBefore(first)
         ? 0
         : effectiveLast.difference(first).inDays + 1;
-    final restDays = (elapsedDays - trainedDays).clamp(0, elapsedDays);
+    final restDays = (elapsedDays - trainedDays).clamp(0, elapsedDays).toInt();
     final totalDurationSeconds = monthRecords.fold<int>(
       0,
       (sum, record) => sum + record.durationSeconds,
