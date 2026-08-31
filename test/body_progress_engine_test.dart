@@ -50,7 +50,7 @@ void main() {
   });
 
   test('absolute and percent change compare first and latest training dates', () {
-    const points = [
+    final points = [
       BodyProgressPoint(date: DateTime(2026, 8, 1), value: 100),
       BodyProgressPoint(date: DateTime(2026, 8, 15), value: 95),
     ];
