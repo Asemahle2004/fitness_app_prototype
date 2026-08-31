@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'exercise_media.dart';
 import 'exercise_performance_store.dart';
 import 'exercise_swap_service.dart';
+import 'progression_engine.dart';
 import 'training_store.dart';
 import 'workout_engine.dart';
 
@@ -63,6 +64,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
 
   final TextEditingController _weightController = TextEditingController();
   ExerciseSetPerformance? _previousPerformance;
+  ProgressionSuggestion? _progressionSuggestion;
   bool _performanceLoading = false;
   double? _activeSetWeightKg;
   String? _lastSavedSummary;
@@ -113,6 +115,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
     _phaseStartedAt = null;
     _activeSetWeightKg = null;
     _previousPerformance = null;
+    _progressionSuggestion = null;
     _performanceLoading = true;
     _weightController.clear();
   }
@@ -123,12 +126,26 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
       if (!mounted || isComplete || currentExercise.name != exerciseName) return;
       setState(() {
         _previousPerformance = previous;
+        _progressionSuggestion = ProgressionEngine.suggest(
+          exercise: currentExercise,
+          previous: previous,
+        );
         _performanceLoading = false;
-        if (previous?.weightKg != null && _weightController.text.isEmpty) {
-          final weight = previous!.weightKg!;
-          _weightController.text = weight % 1 == 0
-              ? weight.toStringAsFixed(0)
-              : weight.toStringAsFixed(1);
+
+        final suggestion = _progressionSuggestion;
+        if (suggestion?.targetReps != null) {
+          targetReps = suggestion!.targetReps!;
+        }
+        if (suggestion?.targetDurationSeconds != null) {
+          workSecondsTarget = suggestion!.targetDurationSeconds!;
+          workSecondsRemaining = workSecondsTarget;
+        }
+
+        final suggestedWeight = suggestion?.targetWeightKg;
+        if (suggestedWeight != null && _weightController.text.isEmpty) {
+          _weightController.text = _formatWeight(suggestedWeight);
+        } else if (previous?.weightKg != null && _weightController.text.isEmpty) {
+          _weightController.text = _formatWeight(previous!.weightKg!);
         }
       });
     } catch (_) {
@@ -671,6 +688,10 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
                     ),
                     const SizedBox(height: 14),
                     _previousPerformanceCard(),
+                    if (_progressionSuggestion != null) ...[
+                      const SizedBox(height: 10),
+                      _progressionSuggestionCard(),
+                    ],
                     const SizedBox(height: 14),
                     if (currentIsTimed)
                       _timedControls(exercise)
@@ -816,6 +837,71 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
                     fontSize: 15,
                     fontWeight: FontWeight.bold,
                     color: Color(0xFF102A43),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+
+  Widget _progressionSuggestionCard() {
+    final suggestion = _progressionSuggestion;
+    if (suggestion == null) return const SizedBox.shrink();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF3F8DC),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFD8E89A)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.trending_up_rounded, color: Color(0xFF0F6B4B)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'LeanEat progression suggestion',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF55721B),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  suggestion.headline,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF102A43),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  suggestion.explanation,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    height: 1.4,
+                    color: Color(0xFF627D98),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'This is a suggested starting target, not a requirement. Reduce it if form, comfort or readiness is worse today.',
+                  style: TextStyle(
+                    fontSize: 11,
+                    height: 1.35,
+                    color: Color(0xFF829AB1),
                   ),
                 ),
               ],
