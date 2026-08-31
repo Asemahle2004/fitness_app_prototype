@@ -1,0 +1,35 @@
+name: Apply superset integration
+
+on:
+  push:
+    branches:
+      - feature/supersets
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[superset-applied]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/supersets
+          fetch-depth: 0
+
+      - name: Apply superset patch
+        run: python tools/apply_superset_patch.py
+
+      - name: Commit generated integration
+        run: |
+          if git diff --quiet; then
+            echo "No superset changes required."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/workout_engine.dart lib/custom_workout_store.dart lib/safety_engine.dart lib/workout_editor_screen.dart lib/custom_workouts_screen.dart lib/live_workout_screen.dart
+          git commit -m "Apply superset integration [superset-applied]"
+          git push origin HEAD:feature/supersets
