@@ -4,10 +4,17 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'lean_eat_theme.dart';
+import 'profile_service.dart';
 
 class LeanEatAuthGate extends StatefulWidget {
-  final Widget signedInHome;
-  const LeanEatAuthGate({super.key, required this.signedInHome});
+  final Widget onboardingHome;
+  final Widget Function(Map<String, dynamic> profile) completedHomeBuilder;
+
+  const LeanEatAuthGate({
+    super.key,
+    required this.onboardingHome,
+    required this.completedHomeBuilder,
+  });
 
   @override
   State<LeanEatAuthGate> createState() => _LeanEatAuthGateState();
@@ -30,10 +37,63 @@ class _LeanEatAuthGateState extends State<LeanEatAuthGate> {
     super.dispose();
   }
 
+  Future<Map<String, dynamic>?> _loadProfile() {
+    return ProfileService(Supabase.instance.client).currentProfileMap();
+  }
+
   @override
   Widget build(BuildContext context) {
     final session = Supabase.instance.client.auth.currentSession;
-    return session == null ? const LeanEatAuthScreen() : widget.signedInHome;
+    if (session == null) return const LeanEatAuthScreen();
+
+    return ValueListenableBuilder<int>(
+      valueListenable: ProfileService.revision,
+      builder: (context, _, __) {
+        return FutureBuilder<Map<String, dynamic>?>(
+          future: _loadProfile(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Scaffold(
+                body: Center(child: CircularProgressIndicator()),
+              );
+            }
+
+            if (snapshot.hasError) {
+              return Scaffold(
+                body: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.cloud_off_outlined, size: 42),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'LeanEat could not load your saved profile.',
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 14),
+                        OutlinedButton(
+                          onPressed: () => setState(() {}),
+                          child: const Text('TRY AGAIN'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            final profile = snapshot.data;
+            final completed = profile?['onboarding_complete'] == true;
+            if (completed && profile != null) {
+              return widget.completedHomeBuilder(profile);
+            }
+            return widget.onboardingHome;
+          },
+        );
+      },
+    );
   }
 }
 
