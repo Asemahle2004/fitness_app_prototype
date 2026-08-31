@@ -30,6 +30,8 @@
 	<string>LeanIt uses the camera only when you choose to take a private progress photo.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>LeanIt accesses your photo library only when you choose a progress photo.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>LeanIt uses your location while the run tracker is open to measure running distance and pace.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
