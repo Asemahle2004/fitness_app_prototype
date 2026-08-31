@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class LeanEatProfile {
@@ -35,12 +36,22 @@ class ProfileService {
   final SupabaseClient client;
   const ProfileService(this.client);
 
+  /// Incremented whenever this app changes the signed-in profile. Screens that
+  /// route based on onboarding state can listen to this and refresh immediately
+  /// instead of waiting for the next sign-in or app restart.
+  static final ValueNotifier<int> revision = ValueNotifier<int>(0);
+
   Future<LeanEatProfile?> currentProfile() async {
+    final row = await currentProfileMap();
+    if (row == null) return null;
+    return LeanEatProfile.fromMap(row);
+  }
+
+  Future<Map<String, dynamic>?> currentProfileMap() async {
     final user = client.auth.currentUser;
     if (user == null) return null;
     final row = await client.from('profiles').select().eq('id', user.id).maybeSingle();
-    if (row == null) return null;
-    return LeanEatProfile.fromMap(row);
+    return row == null ? null : Map<String, dynamic>.from(row);
   }
 
   Future<void> updateProfile(Map<String, dynamic> updates) async {
@@ -51,5 +62,10 @@ class ProfileService {
       ...updates,
       'updated_at': DateTime.now().toIso8601String(),
     });
+    revision.value += 1;
+  }
+
+  static void notifyChanged() {
+    revision.value += 1;
   }
 }
