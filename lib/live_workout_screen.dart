@@ -258,7 +258,9 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
     );
 
     _completedSetsByExercise[currentIndex] =
-        (_completedSetsByExercise[currentIndex] + 1).clamp(0, exercise.sets);
+        (_completedSetsByExercise[currentIndex] + 1)
+            .clamp(0, exercise.sets)
+            .toInt();
 
     if (SupersetEngine.hasValidPair(_sessionExercises, currentIndex)) {
       if (_completedSetsByExercise[currentIndex] == exercise.sets) {
