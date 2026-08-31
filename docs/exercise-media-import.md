@@ -43,6 +43,42 @@ Each image should be:
 5. Gender-matched where the app has male/female variants.
 6. Clear enough to understand on a phone without reading tiny text inside the image.
 
+## Optional AI draft generator
+
+The repository contains `tools/generate_exercise_media.py`. It can create **draft** male/female START → FINISH images from the exercise data already stored in Supabase.
+
+It uses OpenAI `gpt-image-2` through the Images API. Generated images are deliberately saved only as local drafts; LeanEat does not mark them reviewed automatically because exercise technique still needs a human review before publication.
+
+Set these secrets only in your local terminal:
+
+```powershell
+$env:OPENAI_API_KEY="YOUR_OPENAI_API_KEY"
+$env:SUPABASE_URL="https://YOUR_PROJECT.supabase.co"
+$env:SUPABASE_SERVICE_ROLE_KEY="YOUR_LOCAL_SERVICE_ROLE_KEY"
+```
+
+Never commit or paste either secret into Flutter or GitHub.
+
+Generate one male/female pair first:
+
+```powershell
+python tools\generate_exercise_media.py --exercise dumbbell_bench_press
+```
+
+Generate another exercise:
+
+```powershell
+python tools\generate_exercise_media.py --exercise wrist_circles
+```
+
+Large runs consume paid image-generation API usage, so the tool deliberately refuses an all-exercise run unless it is explicitly confirmed:
+
+```powershell
+python tools\generate_exercise_media.py --all --confirm-bulk
+```
+
+Review the resulting files in `exercise_media_source/` before uploading them.
+
 ## Secure uploader
 
 The repository contains `tools/exercise_media_import.py`.
