@@ -36,6 +36,41 @@ exercise-media/
 
 Database paths should be relative to the bucket, such as `plank/male.webp`.
 
+## Batch production workflow
+
+The repository now contains two media-production tools:
+
+- `tools/check_exercise_media_coverage.py` — read-only coverage report for all active exercises.
+- `tools/upload_exercise_media.py` — batch uploader that sends reviewed images to Supabase Storage and updates the matching exercise rows.
+
+Prepare source images locally like this:
+
+```
+media_source/
+  dumbbell_bench_press/
+    male.webp
+    female.webp
+  leg_press/
+    male.webp
+    female.webp
+```
+
+Then set the Supabase service-role key only in your local terminal environment and run the uploader. Never put the service-role key in source code or commit it to GitHub.
+
+The uploader validates exercise ids, uploads to the `exercise-media` bucket, and writes `male_image_path` / `female_image_path` automatically. This means new media can be added in batches without changing Flutter code.
+
+## Media standard
+
+Production demonstrations should:
+
+1. Show the actual exercise, not a generic pose.
+2. Prefer a clear START and FINISH view in one image, or a reviewed short video later.
+3. Keep camera angle, crop and background consistent across the library.
+4. Use the requested male/female model variant where available.
+5. Avoid misleading anatomy, impossible joint positions or exaggerated range of motion.
+6. Be reviewed for technique before being marked production-ready.
+7. Be original to LeanEat or licensed for redistribution in a commercial app.
+
 ## Publishing rule
 
 Do not ship third-party watermarked fitness-guide images without a licence. Production media should be created for LeanEat, commissioned, or licensed for app redistribution and should be reviewed for exercise technique before publication.
