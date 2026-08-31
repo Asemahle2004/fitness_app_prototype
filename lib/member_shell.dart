@@ -22,14 +22,38 @@ class LeanEatMemberShell extends StatefulWidget {
 
 class _LeanEatMemberShellState extends State<LeanEatMemberShell> {
   int _index = 0;
+  int _homeRevision = 0;
+  late List<Widget> _pages;
 
-  late final List<Widget> _pages = [
-    LeanEatTodayDashboard(fallbackProgrammeHome: widget.programmeHome),
-    ExerciseLibraryScreen(client: Supabase.instance.client),
-    const ReadinessScreen(),
-    const ProgressScreen(),
-    const LeanEatAccountScreen(),
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _pages = _buildPages();
+  }
+
+  List<Widget> _buildPages() => [
+        LeanEatTodayDashboard(
+          key: ValueKey('today-$_homeRevision'),
+          fallbackProgrammeHome: widget.programmeHome,
+        ),
+        ExerciseLibraryScreen(client: Supabase.instance.client),
+        const ReadinessScreen(),
+        const ProgressScreen(),
+        const LeanEatAccountScreen(),
+      ];
+
+  void _selectDestination(int value) {
+    setState(() {
+      _index = value;
+      if (value == 0) {
+        _homeRevision += 1;
+        _pages[0] = LeanEatTodayDashboard(
+          key: ValueKey('today-$_homeRevision'),
+          fallbackProgrammeHome: widget.programmeHome,
+        );
+      }
+    });
+  }
 
   static const _destinations = <NavigationDestination>[
     NavigationDestination(
@@ -69,7 +93,7 @@ class _LeanEatMemberShellState extends State<LeanEatMemberShell> {
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
-        onDestinationSelected: (value) => setState(() => _index = value),
+        onDestinationSelected: _selectDestination,
         destinations: _destinations,
       ),
     );
