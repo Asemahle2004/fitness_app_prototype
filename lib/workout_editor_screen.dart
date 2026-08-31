@@ -1,6 +1,9 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'custom_exercise_store.dart';
 import 'exercise_library_screen.dart';
 import 'exercise_repository.dart';
 import 'profile_service.dart';
@@ -26,6 +29,28 @@ class WorkoutEditorMapper {
       reps = '10 min';
       rest = 'As needed';
       metricLabel = 'TIME';
+    }
+
+    if (exercise.mediaSource == CustomExerciseStore.mediaSource &&
+        exercise.mediaReviewNotes != null) {
+      try {
+        final decoded = jsonDecode(exercise.mediaReviewNotes!);
+        if (decoded is Map<String, dynamic>) {
+          final customSets = (decoded['default_sets'] as num?)?.toInt();
+          final customReps = decoded['default_reps']?.toString().trim();
+          final customRest = decoded['default_rest']?.toString().trim();
+          if (customSets != null && customSets > 0) sets = customSets;
+          if (customReps != null && customReps.isNotEmpty) reps = customReps;
+          if (customRest != null && customRest.isNotEmpty) rest = customRest;
+        }
+      } catch (_) {}
+
+      final value = reps.toLowerCase();
+      if (value.contains('sec') ||
+          value.contains('min') ||
+          value.contains('minute')) {
+        metricLabel = 'TIME';
+      }
     }
 
     final targets = <String>{
