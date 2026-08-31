@@ -1,3 +1,4 @@
+import 'superset_engine.dart';
 import 'workout_engine.dart';
 
 enum SafetyStatus { normal, modified, medicalReview }
@@ -236,7 +237,7 @@ class SafetyEngine {
     return SafetyAdaptation(
       workout: GeneratedWorkout(
         title: '${baseWorkout.title} — Modified',
-        exercises: kept,
+        exercises: SupersetEngine.normalize(kept),
       ),
       status: SafetyStatus.modified,
       blocksTraining: false,
