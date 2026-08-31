@@ -86,11 +86,18 @@ class OnlineExercise {
 
   /// Returns only media that has been explicitly reviewed for production use.
   /// A path existing in Storage is not enough by itself: technique and media
-  /// rights must both be approved before LeanEat shows it as final media.
+  /// rights must both be approved before LeanIt shows it as final media.
+  ///
+  /// Sex-specific reviewed media stays preferred. A licensed generic image is
+  /// allowed only when media_review_notes contains the explicit
+  /// [approved-generic] marker written by the import/review tooling.
   String? reviewedImageForSex(String? sex) {
     if (sex == 'Female') {
       if (femaleImageReviewed && _hasText(femaleImagePath)) {
         return femaleImagePath;
+      }
+      if (hasApprovedGenericImage) {
+        return imagePath;
       }
       if (maleImageReviewed && _hasText(maleImagePath)) {
         return maleImagePath;
@@ -102,15 +109,24 @@ class OnlineExercise {
       if (maleImageReviewed && _hasText(maleImagePath)) {
         return maleImagePath;
       }
+      if (hasApprovedGenericImage) {
+        return imagePath;
+      }
       if (femaleImageReviewed && _hasText(femaleImagePath)) {
         return femaleImagePath;
       }
       return null;
     }
 
+    if (hasApprovedGenericImage) return imagePath;
     if (maleImageReviewed && _hasText(maleImagePath)) return maleImagePath;
     if (femaleImageReviewed && _hasText(femaleImagePath)) return femaleImagePath;
     return null;
+  }
+
+  bool get hasApprovedGenericImage {
+    final notes = mediaReviewNotes ?? '';
+    return _hasText(imagePath) && notes.contains('[approved-generic]');
   }
 
   bool get hasReviewedMaleImage =>
