@@ -50,7 +50,9 @@ class SupersetEngine {
     final result = normalize(exercises);
     if (firstIndex < 0 || firstIndex >= result.length - 1) return result;
     if (result[firstIndex].supersetId != null ||
-        result[firstIndex + 1].supersetId != null) {
+        result[firstIndex + 1].supersetId != null ||
+        result[firstIndex].dropSetCount > 0 ||
+        result[firstIndex + 1].dropSetCount > 0) {
       return result;
     }
 

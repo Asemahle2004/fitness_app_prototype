@@ -8,6 +8,8 @@ class ExercisePrescription {
   final String? visualAsset;
   final String? metricLabel;
   final String? supersetId;
+  final int dropSetCount;
+  final int dropSetReductionPercent;
 
   const ExercisePrescription({
     required this.name,
@@ -19,6 +21,8 @@ class ExercisePrescription {
     this.visualAsset,
     this.metricLabel,
     this.supersetId,
+    this.dropSetCount = 0,
+    this.dropSetReductionPercent = 20,
   });
 
   ExercisePrescription copyWith({
@@ -31,7 +35,10 @@ class ExercisePrescription {
     String? visualAsset,
     String? metricLabel,
     String? supersetId,
+    int? dropSetCount,
+    int? dropSetReductionPercent,
     bool clearSuperset = false,
+    bool clearDropSet = false,
   }) {
     return ExercisePrescription(
       name: name ?? this.name,
@@ -43,6 +50,10 @@ class ExercisePrescription {
       visualAsset: visualAsset ?? this.visualAsset,
       metricLabel: metricLabel ?? this.metricLabel,
       supersetId: clearSuperset ? null : (supersetId ?? this.supersetId),
+      dropSetCount: clearDropSet ? 0 : (dropSetCount ?? this.dropSetCount),
+      dropSetReductionPercent: clearDropSet
+          ? 20
+          : (dropSetReductionPercent ?? this.dropSetReductionPercent),
     );
   }
 
