@@ -48,5 +48,6 @@ void main() {
     expect(restored.dropNumber, 2);
     expect(restored.setLabel, 'Drop 2');
     expect(restored.summary, '15 kg × 10 reps');
+    expect(restored.nextTargetSuggestion, isNull);
   });
 }
