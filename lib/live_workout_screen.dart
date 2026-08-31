@@ -8,6 +8,8 @@ import 'exercise_media.dart';
 import 'exercise_performance_store.dart';
 import 'exercise_swap_service.dart';
 import 'progression_engine.dart';
+import 'session_phase_flow_screen.dart';
+import 'session_preparation_engine.dart';
 import 'superset_engine.dart';
 import 'training_store.dart';
 import 'workout_editor_screen.dart';
@@ -61,6 +63,10 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
   bool _finishingSet = false;
   bool _swapping = false;
   bool _editingWorkout = false;
+  bool _preparationCompleted = false;
+  bool _coolDownCompleted = false;
+  bool _openingPreparation = false;
+  bool _openingCoolDown = false;
   int? _nextIndexAfterRest;
   int _activeRestSeconds = 0;
   int _activeDropNumber = 0;
@@ -92,7 +98,16 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
       phase == LivePhase.ready &&
       currentIndex == 0 &&
       currentSet == 1 &&
-      completedSets == 0;
+      completedSets == 0 &&
+      !_preparationCompleted;
+
+  GeneratedWorkout get _currentSessionWorkout => GeneratedWorkout(
+        title: widget.workout.title,
+        exercises: List<ExercisePrescription>.unmodifiable(_sessionExercises),
+      );
+
+  SessionPreparationPlan get _sessionPreparationPlan =>
+      SessionPreparationEngine.forWorkout(_currentSessionWorkout);
 
   @override
   void initState() {
@@ -184,6 +199,14 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
 
   void _startSet() {
     if (_editingWorkout || _swapping) return;
+    if (!_preparationCompleted &&
+        completedSets == 0 &&
+        currentIndex == 0 &&
+        currentSet == 1 &&
+        !inDropSet) {
+      unawaited(_openPreparationFlow());
+      return;
+    }
     _tickTimer?.cancel();
     _activeSetWeightKg = currentIsTimed ? null : _enteredWeightKg();
 
@@ -230,6 +253,71 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
         }
       });
     }
+  }
+
+  Future<void> _openPreparationFlow() async {
+    if (_openingPreparation || _preparationCompleted || !mounted) return;
+    final steps = _sessionPreparationPlan.warmUp;
+    if (steps.isEmpty) {
+      setState(() => _preparationCompleted = true);
+      return;
+    }
+
+    setState(() => _openingPreparation = true);
+    final completed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SessionPhaseFlowScreen(
+          title: 'Warm-up + mobility',
+          subtitle:
+              'LeanIt prepared these steps from the movements in today’s workout. They prepare you for the main session and are not added to strength volume or progression history.',
+          steps: steps,
+          completeLabel: 'WARM-UP COMPLETE',
+        ),
+      ),
+    );
+
+    if (!mounted) return;
+    setState(() {
+      _openingPreparation = false;
+      if (completed == true) _preparationCompleted = true;
+    });
+    if (completed == true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Warm-up complete. Start your first working set when ready.'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _openCoolDownFlow() async {
+    if (_openingCoolDown || _coolDownCompleted || !mounted) return;
+    final steps = _sessionPreparationPlan.coolDown;
+    if (steps.isEmpty) {
+      setState(() => _coolDownCompleted = true);
+      return;
+    }
+
+    setState(() => _openingCoolDown = true);
+    final completed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SessionPhaseFlowScreen(
+          title: 'Cool-down + stretching',
+          subtitle:
+              'Bring the session down gradually with easy recovery, comfortable stretching and breathing. These steps do not change your workout-performance records.',
+          steps: steps,
+          completeLabel: 'COOL-DOWN COMPLETE',
+        ),
+      ),
+    );
+
+    if (!mounted) return;
+    setState(() {
+      _openingCoolDown = false;
+      if (completed == true) _coolDownCompleted = true;
+    });
   }
 
   Future<void> _finishSet() async {
@@ -489,6 +577,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
     if (completedExercises >= _sessionExercises.length) {
       setState(() => phase = LivePhase.ready);
       unawaited(_saveHistory());
+      unawaited(_openCoolDownFlow());
       return;
     }
 
@@ -921,6 +1010,12 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
                       _supersetBanner(),
                       const SizedBox(height: 12),
                     ],
+                    if (!_preparationCompleted &&
+                        completedSets == 0 &&
+                        currentIndex == 0) ...[
+                      _preparationPreviewCard(),
+                      const SizedBox(height: 12),
+                    ],
                     _previousPerformanceCard(),
                     if (!inDropSet && _progressionSuggestion != null) ...[
                       const SizedBox(height: 10),
@@ -1019,13 +1114,62 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
                   foregroundColor: Colors.white,
                 ),
                 label: Text(
-                  inDropSet
-                      ? 'START DROP $_activeDropNumber'
-                      : (currentIsTimed ? 'START TIMER' : 'START SET'),
+                  !_preparationCompleted &&
+                          completedSets == 0 &&
+                          currentIndex == 0 &&
+                          currentSet == 1
+                      ? 'START WARM-UP'
+                      : inDropSet
+                          ? 'START DROP $_activeDropNumber'
+                          : (currentIsTimed ? 'START TIMER' : 'START SET'),
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               ),
             ),
+        ],
+      ),
+    );
+  }
+
+  Widget _preparationPreviewCard() {
+    final plan = _sessionPreparationPlan;
+    final minutes = (plan.warmUpSeconds / 60).ceil();
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF3F8DC),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFD8E89A)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.directions_run_rounded, color: Color(0xFF55721B)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Preparation before working sets',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF102A43),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${plan.warmUp.length} guided steps • about $minutes min • warm-up, mobility and activation',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    height: 1.4,
+                    color: Color(0xFF627D98),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -1575,15 +1719,40 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
               ),
             ),
             const SizedBox(height: 8),
-            const Text(
-              'Your completed set performance has been saved to LeanIt history.',
+            Text(
+              _coolDownCompleted
+                  ? 'Your workout is saved and your guided cool-down is complete.'
+                  : 'Your workout is saved. Finish with LeanIt’s guided cool-down and stretching when you are ready.',
               textAlign: TextAlign.center,
-              style: TextStyle(
+              style: const TextStyle(
                 fontSize: 14,
                 color: Color(0xFF486581),
               ),
             ),
-            const SizedBox(height: 30),
+            const SizedBox(height: 22),
+            if (!_coolDownCompleted && _sessionPreparationPlan.coolDown.isNotEmpty) ...[
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _openingCoolDown ? null : _openCoolDownFlow,
+                  icon: _openingCoolDown
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.self_improvement_rounded),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(54),
+                  ),
+                  label: const Text(
+                    'DO COOL-DOWN + STRETCHING',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
