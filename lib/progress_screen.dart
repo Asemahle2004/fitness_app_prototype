@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'exercise_performance_store.dart';
 import 'exercise_progress_entry_section.dart';
 import 'training_store.dart';
+import 'workout_calendar_entry_section.dart';
 
 class ProgressScreen extends StatefulWidget {
   const ProgressScreen({super.key});
@@ -166,6 +167,8 @@ class _ProgressScreenState extends State<ProgressScreen> {
                     ),
                   ],
                 ),
+                const SizedBox(height: 28),
+                WorkoutCalendarEntrySection(records: records),
                 const SizedBox(height: 28),
                 ExerciseProgressEntrySection(sets: sets),
                 const SizedBox(height: 28),
