@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'custom_exercise_store.dart';
+import 'drop_set_engine.dart';
 import 'exercise_library_screen.dart';
 import 'exercise_repository.dart';
 import 'profile_service.dart';
@@ -218,6 +219,86 @@ class _WorkoutEditorScreenState extends State<WorkoutEditorScreen> {
     });
   }
 
+  Future<void> _configureDropSet(int index) async {
+    final current = _exercises[index];
+    if (!DropSetEngine.isLoadTrackedStrength(current)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Drop sets are available for load-tracked strength exercises.')),
+      );
+      return;
+    }
+    if (current.supersetId != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Remove the superset pairing before adding a drop set.')),
+      );
+      return;
+    }
+
+    var drops = current.dropSetCount > 0 ? current.dropSetCount : 1;
+    var reduction = current.dropSetReductionPercent;
+    final config = await showDialog<DropSetConfig>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(current.dropSetCount > 0 ? 'Edit drop set' : 'Add drop set'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('After the final normal set, reduce the load and continue immediately without rest.'),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<int>(
+                value: drops,
+                decoration: const InputDecoration(labelText: 'Number of drops'),
+                items: const [1, 2, 3]
+                    .map((value) => DropdownMenuItem(value: value, child: Text('$value')))
+                    .toList(),
+                onChanged: (value) {
+                  if (value != null) setDialogState(() => drops = value);
+                },
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<int>(
+                value: reduction,
+                decoration: const InputDecoration(labelText: 'Load reduction each drop'),
+                items: const [10, 15, 20, 25, 30]
+                    .map((value) => DropdownMenuItem(value: value, child: Text('$value%')))
+                    .toList(),
+                onChanged: (value) {
+                  if (value != null) setDialogState(() => reduction = value);
+                },
+              ),
+            ],
+          ),
+          actions: [
+            if (current.dropSetCount > 0)
+              TextButton(
+                onPressed: () => Navigator.pop(
+                  dialogContext,
+                  const DropSetConfig(drops: 0, reductionPercent: 20),
+                ),
+                child: const Text('REMOVE'),
+              ),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('CANCEL'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(
+                dialogContext,
+                DropSetConfig(drops: drops, reductionPercent: reduction),
+              ),
+              child: const Text('SAVE'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (config == null || !mounted) return;
+    setState(() {
+      _exercises[index] = DropSetEngine.configure(current, config);
+    });
+  }
+
   void _reset() {
     setState(() {
       _exercises
@@ -351,6 +432,17 @@ class _WorkoutEditorScreenState extends State<WorkoutEditorScreen> {
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
+                              if (exercise.dropSetCount > 0) ...[
+                                const SizedBox(height: 3),
+                                Text(
+                                  'DROP SET • ${DropSetEngine.badge(exercise)}',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF9A6700),
+                                  ),
+                                ),
+                              ],
                               const SizedBox(height: 3),
                               Text(
                                 '${exercise.target} • ${exercise.equipment}',
@@ -382,7 +474,9 @@ class _WorkoutEditorScreenState extends State<WorkoutEditorScreen> {
                                 if (SupersetEngine.hasValidPair(_exercises, index) ||
                                     (index < _exercises.length - 1 &&
                                         _exercises[index].supersetId == null &&
-                                        _exercises[index + 1].supersetId == null))
+                                        _exercises[index + 1].supersetId == null &&
+                                        _exercises[index].dropSetCount == 0 &&
+                                        _exercises[index + 1].dropSetCount == 0))
                                   IconButton(
                                     tooltip: SupersetEngine.hasValidPair(_exercises, index)
                                         ? 'Remove superset'
@@ -392,6 +486,20 @@ class _WorkoutEditorScreenState extends State<WorkoutEditorScreen> {
                                       SupersetEngine.hasValidPair(_exercises, index)
                                           ? Icons.link_off_rounded
                                           : Icons.link_rounded,
+                                    ),
+                                  ),
+                                if (DropSetEngine.isLoadTrackedStrength(exercise) &&
+                                    exercise.supersetId == null)
+                                  IconButton(
+                                    tooltip: exercise.dropSetCount > 0
+                                        ? 'Edit drop set'
+                                        : 'Add drop set',
+                                    onPressed: () => _configureDropSet(index),
+                                    icon: Icon(
+                                      Icons.trending_down_rounded,
+                                      color: exercise.dropSetCount > 0
+                                          ? const Color(0xFF9A6700)
+                                          : null,
                                     ),
                                   ),
                                 IconButton(

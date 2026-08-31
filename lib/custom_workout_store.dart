@@ -80,6 +80,8 @@ class CustomWorkout {
         'visual_asset': exercise.visualAsset,
         'metric_label': exercise.metricLabel,
         'superset_id': exercise.supersetId,
+        'drop_set_count': exercise.dropSetCount,
+        'drop_set_reduction_percent': exercise.dropSetReductionPercent,
       };
 
   static ExercisePrescription _exerciseFromJson(Map<String, dynamic> json) {
@@ -93,6 +95,9 @@ class CustomWorkout {
       visualAsset: json['visual_asset']?.toString(),
       metricLabel: json['metric_label']?.toString(),
       supersetId: json['superset_id']?.toString(),
+      dropSetCount: (json['drop_set_count'] as num?)?.toInt() ?? 0,
+      dropSetReductionPercent:
+          (json['drop_set_reduction_percent'] as num?)?.toInt() ?? 20,
     );
   }
 }

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'drop_set_engine.dart';
 import 'exercise_media.dart';
 import 'exercise_performance_store.dart';
 import 'exercise_swap_service.dart';
@@ -62,6 +63,8 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
   bool _editingWorkout = false;
   int? _nextIndexAfterRest;
   int _activeRestSeconds = 0;
+  int _activeDropNumber = 0;
+  double? _dropSetBaseWeightKg;
 
   late final List<ExercisePrescription> _sessionExercises;
   late List<int> _completedSetsByExercise;
@@ -82,6 +85,8 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
   ExercisePrescription get currentExercise => _sessionExercises[currentIndex];
 
   bool get currentIsTimed => _isTimedExercise(currentExercise);
+
+  bool get inDropSet => _activeDropNumber > 0;
 
   bool get canEditStructure =>
       phase == LivePhase.ready &&
@@ -127,6 +132,8 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
     restSecondsRemaining = _parseRestSeconds(currentExercise.rest);
     _phaseStartedAt = null;
     _activeSetWeightKg = null;
+    _activeDropNumber = 0;
+    _dropSetBaseWeightKg = null;
     _previousPerformance = null;
     _progressionSuggestion = null;
     _performanceLoading = true;
@@ -232,6 +239,8 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
 
     final exercise = currentExercise;
     final setNumber = currentSet;
+    final finishingDropSet = inDropSet;
+    final dropNumber = _activeDropNumber;
     final actualReps = currentIsTimed
         ? null
         : (displayedRep > 0 ? displayedRep : targetReps);
@@ -245,7 +254,9 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
     final savedSummary = currentIsTimed
         ? _durationSummary(durationSeconds ?? workSecondsTarget)
         : _setSummary(actualReps ?? targetReps, weightKg);
-    _lastSavedSummary = '${exercise.name} • Set $setNumber • $savedSummary';
+    _lastSavedSummary = finishingDropSet
+        ? '${exercise.name} • Drop $dropNumber • $savedSummary'
+        : '${exercise.name} • Set $setNumber • $savedSummary';
 
     unawaited(
       _saveSetPerformance(
@@ -254,13 +265,42 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
         reps: actualReps,
         weightKg: weightKg,
         durationSeconds: durationSeconds,
+        isDropSet: finishingDropSet,
+        dropNumber: finishingDropSet ? dropNumber : null,
       ),
     );
+
+    if (finishingDropSet) {
+      _finishingSet = false;
+      if (dropNumber < exercise.dropSetCount) {
+        _prepareDropSet(dropNumber + 1);
+        return;
+      }
+
+      _activeDropNumber = 0;
+      _dropSetBaseWeightKg = null;
+      final hasMoreExercises = currentIndex < _sessionExercises.length - 1;
+      if (hasMoreExercises) {
+        _startRest();
+      } else {
+        _finishExerciseAndAdvance();
+      }
+      return;
+    }
 
     _completedSetsByExercise[currentIndex] =
         (_completedSetsByExercise[currentIndex] + 1)
             .clamp(0, exercise.sets)
             .toInt();
+
+    if (currentSet >= exercise.sets &&
+        exercise.dropSetCount > 0 &&
+        DropSetEngine.canConfigure(exercise)) {
+      _finishingSet = false;
+      _dropSetBaseWeightKg = weightKg;
+      _prepareDropSet(1);
+      return;
+    }
 
     if (SupersetEngine.hasValidPair(_sessionExercises, currentIndex)) {
       if (_completedSetsByExercise[currentIndex] == exercise.sets) {
@@ -326,6 +366,8 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
     required int? reps,
     required double? weightKg,
     required int? durationSeconds,
+    bool isDropSet = false,
+    int? dropNumber,
   }) async {
     try {
       await _performanceStore.saveSet(
@@ -335,10 +377,36 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
         reps: reps,
         weightKg: weightKg,
         durationSeconds: durationSeconds,
+        isDropSet: isDropSet,
+        dropNumber: dropNumber,
       );
     } catch (_) {
       // Workout flow continues if local/cloud logging has a temporary issue.
     }
+  }
+
+  void _prepareDropSet(int dropNumber) {
+    final suggested = DropSetEngine.suggestedWeight(
+      workingWeightKg: _dropSetBaseWeightKg,
+      reductionPercent: currentExercise.dropSetReductionPercent,
+      dropNumber: dropNumber,
+    );
+    setState(() {
+      _activeDropNumber = dropNumber;
+      phase = LivePhase.ready;
+      displayedRep = 0;
+      targetReps = _defaultRepTarget(currentExercise);
+      workSecondsTarget = _defaultWorkSeconds(currentExercise);
+      workSecondsRemaining = workSecondsTarget;
+      _activeSetWeightKg = null;
+      _progressionSuggestion = null;
+      _performanceLoading = false;
+      if (suggested != null) {
+        _weightController.text = _formatWeight(suggested);
+      } else {
+        _weightController.clear();
+      }
+    });
   }
 
   void _startRest({int? nextIndex, int? secondsOverride}) {
@@ -508,7 +576,11 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
   }
 
   Future<void> _openSwapFlow() async {
-    if (_swapping || _editingWorkout || phase != LivePhase.ready || currentSet != 1) {
+    if (_swapping ||
+        _editingWorkout ||
+        phase != LivePhase.ready ||
+        currentSet != 1 ||
+        inDropSet) {
       return;
     }
 
@@ -651,9 +723,16 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
     if (selected == null || !mounted) return;
 
     final previousName = currentExercise.name;
-    final replacement = selected.exercise.copyWith(
+    var replacement = selected.exercise.copyWith(
       supersetId: currentExercise.supersetId,
     );
+    if (currentExercise.dropSetCount > 0 &&
+        DropSetEngine.canConfigure(replacement)) {
+      replacement = replacement.copyWith(
+        dropSetCount: currentExercise.dropSetCount,
+        dropSetReductionPercent: currentExercise.dropSetReductionPercent,
+      );
+    }
     setState(() {
       _sessionExercises[currentIndex] = replacement;
       _resetCurrentExerciseState(
@@ -759,7 +838,9 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
                 ),
               ),
               Text(
-                'Set $currentSet of ${exercise.sets}',
+                inDropSet
+                    ? 'Drop $_activeDropNumber of ${exercise.dropSetCount}'
+                    : 'Set $currentSet of ${exercise.sets}',
                 style: const TextStyle(
                   fontWeight: FontWeight.bold,
                   color: Color(0xFF486581),
@@ -829,6 +910,10 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
                       ),
                     ),
                     const SizedBox(height: 14),
+                    if (inDropSet) ...[
+                      _dropSetBanner(),
+                      const SizedBox(height: 12),
+                    ],
                     if (SupersetEngine.hasValidPair(
                       _sessionExercises,
                       currentIndex,
@@ -837,7 +922,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
                       const SizedBox(height: 12),
                     ],
                     _previousPerformanceCard(),
-                    if (_progressionSuggestion != null) ...[
+                    if (!inDropSet && _progressionSuggestion != null) ...[
                       const SizedBox(height: 10),
                       _progressionSuggestionCard(),
                     ],
@@ -889,7 +974,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
               ),
             ),
           if (canEditStructure) const SizedBox(height: 10),
-          if (phase == LivePhase.ready && currentSet == 1)
+          if (phase == LivePhase.ready && currentSet == 1 && !inDropSet)
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
@@ -909,7 +994,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
                 ),
               ),
             ),
-          if (phase == LivePhase.ready && currentSet == 1)
+          if (phase == LivePhase.ready && currentSet == 1 && !inDropSet)
             const SizedBox(height: 10),
           if (phase == LivePhase.active)
             SizedBox(
@@ -934,11 +1019,43 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
                   foregroundColor: Colors.white,
                 ),
                 label: Text(
-                  currentIsTimed ? 'START TIMER' : 'START SET',
+                  inDropSet
+                      ? 'START DROP $_activeDropNumber'
+                      : (currentIsTimed ? 'START TIMER' : 'START SET'),
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               ),
             ),
+        ],
+      ),
+    );
+  }
+
+  Widget _dropSetBanner() {
+    final suggested = _weightController.text.trim();
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF7E6),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFFFD58A)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.trending_down_rounded, color: Color(0xFF9A6700)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'DROP $_activeDropNumber OF ${currentExercise.dropSetCount} • reduce about ${currentExercise.dropSetReductionPercent}% • no rest'
+              '${suggested.isEmpty ? '' : ' • target $suggested kg'}',
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF9A6700),
+              ),
+            ),
+          ),
         ],
       ),
     );

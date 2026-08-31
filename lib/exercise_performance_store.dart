@@ -10,6 +10,8 @@ class ExerciseSetPerformance {
   final int? reps;
   final double? weightKg;
   final int? durationSeconds;
+  final String setType;
+  final int? dropNumber;
   final DateTime performedAt;
 
   const ExerciseSetPerformance({
@@ -19,6 +21,8 @@ class ExerciseSetPerformance {
     required this.reps,
     required this.weightKg,
     required this.durationSeconds,
+    this.setType = 'normal',
+    this.dropNumber,
     required this.performedAt,
   });
 
@@ -43,6 +47,8 @@ class ExerciseSetPerformance {
       reps: number(map['reps'])?.toInt(),
       weightKg: rawWeight?.toDouble(),
       durationSeconds: rawDuration?.toInt(),
+      setType: (map['set_type'] ?? map['setType'])?.toString() ?? 'normal',
+      dropNumber: number(map['drop_number'] ?? map['dropNumber'])?.toInt(),
       performedAt: DateTime.tryParse(
             (map['performed_at'] ?? map['performedAt'])?.toString() ?? '',
           ) ??
@@ -57,8 +63,16 @@ class ExerciseSetPerformance {
         'reps': reps,
         'weightKg': weightKg,
         'durationSeconds': durationSeconds,
+        'setType': setType,
+        'dropNumber': dropNumber,
         'performedAt': performedAt.toIso8601String(),
       };
+
+  bool get isDropSet => setType == 'drop';
+
+  String get setLabel => isDropSet
+      ? 'Drop ${dropNumber ?? 1}'
+      : 'Set $setNumber';
 
   String get summary {
     if (durationSeconds != null) {
@@ -82,6 +96,8 @@ class ExerciseSetPerformance {
   }
 
   String? get nextTargetSuggestion {
+    if (isDropSet) return null;
+
     if (durationSeconds != null) {
       final increase = durationSeconds! < 60 ? 5 : 10;
       return 'Try ${durationSeconds! + increase}s next time if form stays controlled.';
@@ -126,6 +142,8 @@ class ExercisePerformanceStore {
     int? reps,
     double? weightKg,
     int? durationSeconds,
+    bool isDropSet = false,
+    int? dropNumber,
   }) async {
     final record = ExerciseSetPerformance(
       workoutTitle: workoutTitle,
@@ -134,12 +152,19 @@ class ExercisePerformanceStore {
       reps: reps,
       weightKg: weightKg,
       durationSeconds: durationSeconds,
+      setType: isDropSet ? 'drop' : 'normal',
+      dropNumber: isDropSet ? dropNumber : null,
       performedAt: DateTime.now(),
     );
 
     // Local-first: a completed set is never lost merely because mobile data,
     // Wi-Fi or the LeanIt backend is unavailable.
     await _saveLocal(record);
+
+    // Drop-set metadata is local-only until the LeanIt Supabase table has
+    // explicit set_type/drop_number columns. Do not flatten a drop into a
+    // normal cloud set because that would corrupt progression history.
+    if (record.isDropSet) return;
 
     final user = client.auth.currentUser;
     if (user == null) return;
@@ -275,6 +300,7 @@ class ExercisePerformanceStore {
   ) async {
     final lower = exerciseName.trim().toLowerCase();
     for (final record in await _loadLocal()) {
+      if (record.isDropSet) continue;
       if (record.exerciseName.toLowerCase() == lower) return record;
     }
     return null;
@@ -288,6 +314,8 @@ class ExercisePerformanceStore {
       record.reps,
       record.weightKg,
       record.durationSeconds,
+      record.setType,
+      record.dropNumber,
       record.performedAt.toUtc().toIso8601String(),
     ].join('|');
   }
