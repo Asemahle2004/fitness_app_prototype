@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'custom_exercise_form_screen.dart';
 import 'custom_exercise_store.dart';
+import 'exercise_favorite_store.dart';
 import 'exercise_media.dart';
 import 'exercise_repository.dart';
 import 'safety_engine.dart';
@@ -28,20 +31,25 @@ class ExerciseLibraryScreen extends StatefulWidget {
 class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
   late final ExerciseRepository _repository;
   late final CustomExerciseStore _customStore;
+  late final ExerciseFavoriteStore _favoriteStore;
   late Future<List<OnlineExercise>> _future;
   final TextEditingController _searchController = TextEditingController();
   final Set<String> _selectedNames = {};
+  final Set<String> _favoriteIds = {};
   String _search = '';
   String? _category;
   String? _difficulty;
   String? _location;
+  bool _favoritesOnly = false;
 
   @override
   void initState() {
     super.initState();
     _repository = ExerciseRepository(widget.client);
     _customStore = CustomExerciseStore(widget.client);
+    _favoriteStore = ExerciseFavoriteStore(widget.client);
     _future = _loadAll();
+    unawaited(_loadFavorites());
     _selectedNames.addAll(widget.initialSelectedNames);
   }
 
@@ -53,6 +61,47 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
 
   bool _isCustom(OnlineExercise exercise) =>
       exercise.mediaSource == CustomExerciseStore.mediaSource;
+
+  Future<void> _loadFavorites() async {
+    try {
+      final favorites = await _favoriteStore.load();
+      if (!mounted) return;
+      setState(() {
+        _favoriteIds
+          ..clear()
+          ..addAll(favorites);
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _toggleFavorite(OnlineExercise exercise) async {
+    final id = exercise.id.trim();
+    if (id.isEmpty) return;
+    final wasFavorite = _favoriteIds.contains(id);
+    setState(() {
+      if (wasFavorite) {
+        _favoriteIds.remove(id);
+      } else {
+        _favoriteIds.add(id);
+      }
+    });
+
+    try {
+      await _favoriteStore.setFavorite(id, !wasFavorite);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        if (wasFavorite) {
+          _favoriteIds.add(id);
+        } else {
+          _favoriteIds.remove(id);
+        }
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not update favorites.')),
+      );
+    }
+  }
 
   Future<List<OnlineExercise>> _loadAll() async {
     List<OnlineExercise> builtIn = const [];
@@ -104,6 +153,7 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
         exercise.equipment.join(' '),
       ].join(' ').toLowerCase();
       return (query.isEmpty || searchText.contains(query)) &&
+          (!_favoritesOnly || _favoriteIds.contains(exercise.id)) &&
           (_category == null || exercise.category == _category) &&
           (_difficulty == null || exercise.difficulty == _difficulty) &&
           (_location == null || exercise.locations.contains(_location));
@@ -155,6 +205,8 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
     );
     if (confirmed != true) return;
     await _customStore.delete(exercise.id);
+    await _favoriteStore.remove(exercise.id);
+    _favoriteIds.remove(exercise.id);
     _selectedNames.remove(exercise.name);
     if (mounted) await _reload();
   }
@@ -311,6 +363,19 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
                             onSelected: (value) => setState(() => _location = value),
                             onClear: () => setState(() => _location = null),
                           ),
+                          const SizedBox(width: 8),
+                          FilterChip(
+                            selected: _favoritesOnly,
+                            avatar: Icon(
+                              _favoritesOnly
+                                  ? Icons.favorite_rounded
+                                  : Icons.favorite_border_rounded,
+                              size: 17,
+                            ),
+                            label: Text('Favorites (${_favoriteIds.length})'),
+                            onSelected: (value) =>
+                                setState(() => _favoritesOnly = value),
+                          ),
                         ],
                       ),
                     ),
@@ -367,7 +432,11 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Text('No exercises match these filters.'),
+                              Text(
+                                _favoritesOnly
+                                    ? 'No favorite exercises match these filters.'
+                                    : 'No exercises match these filters.',
+                              ),
                               const SizedBox(height: 12),
                               OutlinedButton.icon(
                                 onPressed: _createCustomExercise,
@@ -386,6 +455,7 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
                           final custom = _isCustom(exercise);
                           final allowed = _allowed(exercise);
                           final selected = _selectedNames.contains(exercise.name);
+                          final favorite = _favoriteIds.contains(exercise.id);
                           return Container(
                             margin: const EdgeInsets.only(bottom: 10),
                             decoration: BoxDecoration(
@@ -504,38 +574,60 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
                                         ],
                                       ),
                                     ),
-                                    if (widget.selectionMode)
-                                      Checkbox(
-                                        value: selected,
-                                        onChanged: allowed
-                                            ? (_) {
-                                                setState(() {
-                                                  if (selected) {
-                                                    _selectedNames.remove(exercise.name);
-                                                  } else {
-                                                    _selectedNames.add(exercise.name);
+                                    Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        IconButton(
+                                          tooltip: favorite
+                                              ? 'Remove from favorites'
+                                              : 'Add to favorites',
+                                          onPressed: () => _toggleFavorite(exercise),
+                                          icon: Icon(
+                                            favorite
+                                                ? Icons.favorite_rounded
+                                                : Icons.favorite_border_rounded,
+                                            color: favorite
+                                                ? const Color(0xFFD64545)
+                                                : const Color(0xFF829AB1),
+                                          ),
+                                        ),
+                                        if (widget.selectionMode)
+                                          Checkbox(
+                                            value: selected,
+                                            onChanged: allowed
+                                                ? (_) {
+                                                    setState(() {
+                                                      if (selected) {
+                                                        _selectedNames.remove(exercise.name);
+                                                      } else {
+                                                        _selectedNames.add(exercise.name);
+                                                      }
+                                                    });
                                                   }
-                                                });
-                                              }
-                                            : null,
-                                      )
-                                    else if (custom)
-                                      PopupMenuButton<String>(
-                                        onSelected: (value) {
-                                          if (value == 'edit') _editCustomExercise(exercise);
-                                          if (value == 'delete') _deleteCustomExercise(exercise);
-                                        },
-                                        itemBuilder: (_) => const [
-                                          PopupMenuItem(value: 'edit', child: Text('Edit')),
-                                          PopupMenuItem(value: 'delete', child: Text('Delete')),
-                                        ],
-                                      )
-                                    else
-                                      IconButton(
-                                        tooltip: 'Exercise details',
-                                        onPressed: () => _openDetail(exercise),
-                                        icon: const Icon(Icons.chevron_right, color: Color(0xFF9FB3C8)),
-                                      ),
+                                                : null,
+                                          )
+                                        else if (custom)
+                                          PopupMenuButton<String>(
+                                            onSelected: (value) {
+                                              if (value == 'edit') _editCustomExercise(exercise);
+                                              if (value == 'delete') _deleteCustomExercise(exercise);
+                                            },
+                                            itemBuilder: (_) => const [
+                                              PopupMenuItem(value: 'edit', child: Text('Edit')),
+                                              PopupMenuItem(value: 'delete', child: Text('Delete')),
+                                            ],
+                                          )
+                                        else
+                                          IconButton(
+                                            tooltip: 'Exercise details',
+                                            onPressed: () => _openDetail(exercise),
+                                            icon: const Icon(
+                                              Icons.chevron_right,
+                                              color: Color(0xFF9FB3C8),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
                                   ],
                                 ),
                               ),
