@@ -1,8 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'exercise_media.dart';
+import 'exercise_performance_store.dart';
 import 'training_store.dart';
 import 'workout_engine.dart';
 
@@ -49,7 +51,16 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
   int workSecondsRemaining = 0;
   int workSecondsTarget = 0;
   int restSecondsRemaining = 0;
+
   bool _historySaved = false;
+  bool _finishingSet = false;
+
+  late final ExercisePerformanceStore _performanceStore;
+  final TextEditingController _weightController = TextEditingController();
+  ExerciseSetPerformance? _previousPerformance;
+  bool _performanceLoading = false;
+  double? _activeSetWeightKg;
+  String? _lastSavedSummary;
 
   bool get isComplete =>
       widget.workout.exercises.isNotEmpty &&
@@ -63,7 +74,10 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
   @override
   void initState() {
     super.initState();
-    _prepareCurrentExercise();
+    _performanceStore = ExercisePerformanceStore(Supabase.instance.client);
+    _resetCurrentExerciseState();
+    unawaited(_loadPreviousPerformance(currentExercise.name));
+
     _workoutTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted || isComplete) return;
       setState(() => workoutSeconds += 1);
@@ -74,10 +88,11 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
   void dispose() {
     _tickTimer?.cancel();
     _workoutTimer?.cancel();
+    _weightController.dispose();
     super.dispose();
   }
 
-  void _prepareCurrentExercise() {
+  void _resetCurrentExerciseState() {
     currentSet = 1;
     phase = LivePhase.ready;
     displayedRep = 0;
@@ -86,10 +101,44 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
     workSecondsRemaining = workSecondsTarget;
     restSecondsRemaining = _parseRestSeconds(currentExercise.rest);
     _phaseStartedAt = null;
+    _activeSetWeightKg = null;
+    _previousPerformance = null;
+    _performanceLoading = true;
+    _weightController.clear();
+  }
+
+  Future<void> _loadPreviousPerformance(String exerciseName) async {
+    try {
+      final previous = await _performanceStore.latestForExercise(exerciseName);
+      if (!mounted || currentExercise.name != exerciseName) return;
+      setState(() {
+        _previousPerformance = previous;
+        _performanceLoading = false;
+        if (previous?.weightKg != null && _weightController.text.isEmpty) {
+          final weight = previous!.weightKg!;
+          _weightController.text = weight % 1 == 0
+              ? weight.toStringAsFixed(0)
+              : weight.toStringAsFixed(1);
+        }
+      });
+    } catch (_) {
+      if (!mounted || currentExercise.name != exerciseName) return;
+      setState(() => _performanceLoading = false);
+    }
+  }
+
+  double? _enteredWeightKg() {
+    final raw = _weightController.text.trim().replaceAll(',', '.');
+    if (raw.isEmpty) return null;
+    final value = double.tryParse(raw);
+    if (value == null || value < 0) return null;
+    return value;
   }
 
   void _startSet() {
     _tickTimer?.cancel();
+    _activeSetWeightKg = currentIsTimed ? null : _enteredWeightKg();
+
     setState(() {
       phase = LivePhase.active;
       displayedRep = 0;
@@ -103,12 +152,12 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
 
     if (currentIsTimed) {
       _tickTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
-        if (!mounted || phase != LivePhase.active) return;
+        if (!mounted || phase != LivePhase.active || _finishingSet) return;
         final elapsed = DateTime.now().difference(_phaseStartedAt!).inMilliseconds;
         final remaining = workSecondsTarget - (elapsed / 1000).floor();
         if (remaining <= 0) {
           setState(() => workSecondsRemaining = 0);
-          _finishSet();
+          unawaited(_finishSet());
           return;
         }
         if (remaining != workSecondsRemaining) {
@@ -117,8 +166,9 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
       });
     } else {
       _tickTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
-        if (!mounted || phase != LivePhase.active) return;
-        final elapsed = DateTime.now().difference(_phaseStartedAt!).inMilliseconds / 1000;
+        if (!mounted || phase != LivePhase.active || _finishingSet) return;
+        final elapsed =
+            DateTime.now().difference(_phaseStartedAt!).inMilliseconds / 1000;
         final rep = (elapsed / selectedPace.secondsPerRep).floor() + 1;
         final clamped = rep.clamp(1, targetReps);
         if (clamped != displayedRep) {
@@ -126,23 +176,74 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
         }
         if (elapsed >= targetReps * selectedPace.secondsPerRep) {
           setState(() => displayedRep = targetReps);
-          _finishSet();
+          unawaited(_finishSet());
         }
       });
     }
   }
 
-  void _finishSet() {
+  Future<void> _finishSet() async {
+    if (_finishingSet) return;
+    _finishingSet = true;
     _tickTimer?.cancel();
+
+    final exercise = currentExercise;
+    final setNumber = currentSet;
+    final actualReps = currentIsTimed
+        ? null
+        : (displayedRep > 0 ? displayedRep : targetReps);
+    final durationSeconds = currentIsTimed
+        ? (workSecondsTarget - workSecondsRemaining).clamp(0, workSecondsTarget)
+        : null;
+    final weightKg = _activeSetWeightKg;
+
     completedSets += 1;
+
+    final savedSummary = currentIsTimed
+        ? _durationSummary(durationSeconds ?? workSecondsTarget)
+        : _setSummary(actualReps ?? targetReps, weightKg);
+    _lastSavedSummary = '${exercise.name} • Set $setNumber • $savedSummary';
+
+    unawaited(
+      _saveSetPerformance(
+        exerciseName: exercise.name,
+        setNumber: setNumber,
+        reps: actualReps,
+        weightKg: weightKg,
+        durationSeconds: durationSeconds,
+      ),
+    );
 
     final hasMoreSets = currentSet < currentExercise.sets;
     final hasMoreExercises = currentIndex < widget.workout.exercises.length - 1;
+
+    _finishingSet = false;
 
     if (hasMoreSets || hasMoreExercises) {
       _startRest();
     } else {
       _finishExerciseAndAdvance();
+    }
+  }
+
+  Future<void> _saveSetPerformance({
+    required String exerciseName,
+    required int setNumber,
+    required int? reps,
+    required double? weightKg,
+    required int? durationSeconds,
+  }) async {
+    try {
+      await _performanceStore.saveSet(
+        workoutTitle: widget.workout.title,
+        exerciseName: exerciseName,
+        setNumber: setNumber,
+        reps: reps,
+        weightKg: weightKg,
+        durationSeconds: durationSeconds,
+      );
+    } catch (_) {
+      // Workout flow continues if cloud logging is temporarily unavailable.
     }
   }
 
@@ -182,6 +283,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
         phase = LivePhase.ready;
         displayedRep = 0;
         workSecondsRemaining = workSecondsTarget;
+        _activeSetWeightKg = null;
       });
       return;
     }
@@ -194,14 +296,15 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
 
     if (completedExercises >= widget.workout.exercises.length) {
       setState(() => phase = LivePhase.ready);
-      _saveHistory();
+      unawaited(_saveHistory());
       return;
     }
 
     setState(() {
       currentIndex += 1;
-      _prepareCurrentExercise();
+      _resetCurrentExerciseState();
     });
+    unawaited(_loadPreviousPerformance(currentExercise.name));
   }
 
   Future<void> _saveHistory() async {
@@ -226,14 +329,17 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
     setState(() {
       restSecondsRemaining = (restSecondsRemaining + delta).clamp(0, 600);
       _phaseStartedAt = DateTime.now().subtract(
-        Duration(seconds: _parseRestSeconds(currentExercise.rest) - restSecondsRemaining),
+        Duration(
+          seconds: _parseRestSeconds(currentExercise.rest) -
+              restSecondsRemaining,
+        ),
       );
     });
   }
 
   void _skipSet() {
     _tickTimer?.cancel();
-    _finishSet();
+    unawaited(_finishSet());
   }
 
   @override
@@ -249,7 +355,9 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
       ),
       body: SafeArea(
         child: exercises.isEmpty
-            ? const Center(child: Text('No exercises are available for this workout.'))
+            ? const Center(
+                child: Text('No exercises are available for this workout.'),
+              )
             : isComplete
                 ? _completeView(context)
                 : phase == LivePhase.rest
@@ -350,7 +458,9 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
                         color: Color(0xFF176B87),
                       ),
                     ),
-                    const SizedBox(height: 18),
+                    const SizedBox(height: 14),
+                    _previousPerformanceCard(),
+                    const SizedBox(height: 14),
                     if (currentIsTimed)
                       _timedControls(exercise)
                     else
@@ -374,18 +484,15 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
           ),
           const SizedBox(height: 14),
           if (phase == LivePhase.active)
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: _skipSet,
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(54),
-                    ),
-                    child: const Text('FINISH SET NOW'),
-                  ),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: _finishingSet ? null : _skipSet,
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(54),
                 ),
-              ],
+                child: const Text('FINISH SET NOW'),
+              ),
             )
           else
             SizedBox(
@@ -404,6 +511,85 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
                 ),
               ),
             ),
+        ],
+      ),
+    );
+  }
+
+  Widget _previousPerformanceCard() {
+    if (_performanceLoading) {
+      return const Row(
+        children: [
+          SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          SizedBox(width: 10),
+          Text(
+            'Checking your previous performance…',
+            style: TextStyle(color: Color(0xFF627D98)),
+          ),
+        ],
+      );
+    }
+
+    final previous = _previousPerformance;
+    if (previous == null) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF7F9FC),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: const Text(
+          'First logged session for this exercise. LeanEat will remember today’s sets for next time.',
+          style: TextStyle(
+            fontSize: 13,
+            height: 1.4,
+            color: Color(0xFF627D98),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEAF7FA),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFB9E2EA)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.history_rounded, color: Color(0xFF176B87)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Last logged set',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF627D98),
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  '${previous.summary} • ${_shortDate(previous.performedAt)}',
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF102A43),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -440,6 +626,16 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
               '${selectedPace.label} pace • ${selectedPace.secondsPerRep.toStringAsFixed(selectedPace == RepPace.fast ? 2 : 0)} sec per rep',
               style: const TextStyle(color: Color(0xFF486581)),
             ),
+            if (_activeSetWeightKg != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Load: ${_formatWeight(_activeSetWeightKg!)} kg',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF102A43),
+                ),
+              ),
+            ],
           ] else ...[
             Row(
               children: [
@@ -468,7 +664,17 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _weightController,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: 'Load in kg (optional)',
+                hintText: 'Example: 10',
+                prefixIcon: Icon(Icons.monitor_weight_outlined),
+              ),
+            ),
+            const SizedBox(height: 12),
             const Align(
               alignment: Alignment.centerLeft,
               child: Text(
@@ -490,6 +696,15 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
               onSelectionChanged: (value) {
                 setState(() => selectedPace = value.first);
               },
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'When the set finishes, LeanEat saves the completed reps and optional load to your account.',
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.4,
+                color: Color(0xFF627D98),
+              ),
             ),
           ],
         ],
@@ -558,6 +773,14 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
                 ),
               ],
             ),
+            const SizedBox(height: 8),
+            const Text(
+              'Completed time is saved to your exercise history.',
+              style: TextStyle(
+                fontSize: 12,
+                color: Color(0xFF627D98),
+              ),
+            ),
           ],
         ],
       ),
@@ -574,12 +797,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
       builder: (context, constraints) {
         final compact = constraints.maxHeight < 520;
         return SingleChildScrollView(
-          padding: EdgeInsets.fromLTRB(
-            24,
-            compact ? 14 : 28,
-            24,
-            24,
-          ),
+          padding: EdgeInsets.fromLTRB(24, compact ? 14 : 28, 24, 24),
           child: ConstrainedBox(
             constraints: BoxConstraints(
               minHeight: (constraints.maxHeight - (compact ? 38 : 52))
@@ -611,7 +829,19 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
                       color: const Color(0xFF102A43),
                     ),
                   ),
-                  const SizedBox(height: 6),
+                  if (_lastSavedSummary != null) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      'Saved: $_lastSavedSummary',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF176B87),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 8),
                   Text(
                     nextSet
                         ? 'Next: Set ${currentSet + 1} of ${currentExercise.sets} • ${currentExercise.name}'
@@ -702,6 +932,15 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
                 color: Color(0xFF627D98),
               ),
             ),
+            const SizedBox(height: 8),
+            const Text(
+              'Your completed set performance has been saved to your LeanEat account.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 14,
+                color: Color(0xFF486581),
+              ),
+            ),
             const SizedBox(height: 30),
             SizedBox(
               width: double.infinity,
@@ -713,7 +952,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
                   foregroundColor: Colors.white,
                 ),
                 child: const Text(
-                  'BACK TO WORKOUT',
+                  'BACK TO HOME',
                   style: TextStyle(fontWeight: FontWeight.bold),
                 ),
               ),
@@ -804,5 +1043,40 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
     final minutes = safe ~/ 60;
     final secs = safe % 60;
     return '${minutes.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
+  }
+
+  static String _shortDate(DateTime value) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final local = value.toLocal();
+    return '${local.day} ${months[local.month - 1]}';
+  }
+
+  static String _formatWeight(double value) {
+    return value % 1 == 0 ? value.toStringAsFixed(0) : value.toStringAsFixed(1);
+  }
+
+  static String _setSummary(int reps, double? weightKg) {
+    if (weightKg == null) return '$reps reps';
+    return '${_formatWeight(weightKg)} kg × $reps reps';
+  }
+
+  static String _durationSummary(int seconds) {
+    final safe = seconds < 0 ? 0 : seconds;
+    final minutes = safe ~/ 60;
+    final remainder = safe % 60;
+    return minutes > 0 ? '${minutes}m ${remainder}s' : '${remainder}s';
   }
 }
