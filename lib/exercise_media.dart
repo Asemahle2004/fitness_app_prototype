@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -28,6 +30,7 @@ class _ExerciseMediaState extends State<ExerciseMedia> {
   late final ExerciseRepository _repository;
   late Future<OnlineExercise?> _future;
   late Future<LeanEatProfile?> _profileFuture;
+  final Map<String, Future<Uint8List>> _imageDownloads = {};
 
   @override
   void initState() {
@@ -43,7 +46,15 @@ class _ExerciseMediaState extends State<ExerciseMedia> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.exerciseName != widget.exerciseName) {
       _future = _repository.fetchByName(widget.exerciseName);
+      _imageDownloads.clear();
     }
+  }
+
+  Future<Uint8List> _imageBytes(String path) {
+    return _imageDownloads.putIfAbsent(
+      path,
+      () => _repository.downloadImage(path),
+    );
   }
 
   Widget _photoPending() {
@@ -99,6 +110,38 @@ class _ExerciseMediaState extends State<ExerciseMedia> {
     return _photoPending();
   }
 
+  Widget _loadingPhoto() {
+    return Container(
+      color: const Color(0xFFF7F9F5),
+      alignment: Alignment.center,
+      child: SizedBox(
+        width: widget.compact ? 18 : 30,
+        height: widget.compact ? 18 : 30,
+        child: const CircularProgressIndicator(strokeWidth: 2.5),
+      ),
+    );
+  }
+
+  Widget _reviewedPhoto(String imagePath) {
+    return FutureBuilder<Uint8List>(
+      future: _imageBytes(imagePath),
+      builder: (context, imageSnapshot) {
+        if (imageSnapshot.hasData && imageSnapshot.data!.isNotEmpty) {
+          return Image.memory(
+            imageSnapshot.data!,
+            fit: widget.fit,
+            gaplessPlayback: true,
+            errorBuilder: (_, __, ___) => _fallback(),
+          );
+        }
+        if (imageSnapshot.hasError) {
+          return _fallback();
+        }
+        return _loadingPhoto();
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<Object?>>(
@@ -113,11 +156,7 @@ class _ExerciseMediaState extends State<ExerciseMedia> {
             : null;
         final imagePath = online?.reviewedImageForSex(profile?.preferredVisualSex);
         if (imagePath != null && imagePath.isNotEmpty) {
-          return Image.network(
-            _repository.publicImageUrl(imagePath),
-            fit: widget.fit,
-            errorBuilder: (_, __, ___) => _fallback(),
-          );
+          return _reviewedPhoto(imagePath);
         }
         return _fallback();
       },
