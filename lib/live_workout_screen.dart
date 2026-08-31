@@ -8,6 +8,7 @@ import 'exercise_performance_store.dart';
 import 'exercise_swap_service.dart';
 import 'progression_engine.dart';
 import 'training_store.dart';
+import 'workout_editor_screen.dart';
 import 'workout_engine.dart';
 
 enum RepPace {
@@ -57,6 +58,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
   bool _historySaved = false;
   bool _finishingSet = false;
   bool _swapping = false;
+  bool _editingWorkout = false;
 
   late final List<ExercisePrescription> _sessionExercises;
   late final ExercisePerformanceStore _performanceStore;
@@ -76,6 +78,12 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
   ExercisePrescription get currentExercise => _sessionExercises[currentIndex];
 
   bool get currentIsTimed => _isTimedExercise(currentExercise);
+
+  bool get canEditStructure =>
+      phase == LivePhase.ready &&
+      currentIndex == 0 &&
+      currentSet == 1 &&
+      completedSets == 0;
 
   @override
   void initState() {
@@ -163,6 +171,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
   }
 
   void _startSet() {
+    if (_editingWorkout || _swapping) return;
     _tickTimer?.cancel();
     _activeSetWeightKg = currentIsTimed ? null : _enteredWeightKg();
 
@@ -371,8 +380,51 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
     unawaited(_finishSet());
   }
 
+  Future<void> _openWorkoutEditor() async {
+    if (!canEditStructure || _editingWorkout || _swapping) return;
+
+    setState(() => _editingWorkout = true);
+    final edited = await Navigator.push<GeneratedWorkout>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => WorkoutEditorScreen(
+          workout: GeneratedWorkout(
+            title: widget.workout.title,
+            exercises: List<ExercisePrescription>.unmodifiable(
+              _sessionExercises,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    if (!mounted) return;
+    setState(() => _editingWorkout = false);
+    if (edited == null || edited.exercises.isEmpty) return;
+
+    setState(() {
+      _sessionExercises
+        ..clear()
+        ..addAll(edited.exercises);
+      currentIndex = 0;
+      completedExercises = 0;
+      _resetCurrentExerciseState();
+    });
+    unawaited(_loadPreviousPerformance(currentExercise.name));
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Workout updated: ${_sessionExercises.length} exercises.',
+        ),
+      ),
+    );
+  }
+
   Future<void> _openSwapFlow() async {
-    if (_swapping || phase != LivePhase.ready || currentSet != 1) return;
+    if (_swapping || _editingWorkout || phase != LivePhase.ready || currentSet != 1) {
+      return;
+    }
 
     final reason = await showModalBottomSheet<ExerciseSwapReason>(
       context: context,
@@ -715,11 +767,36 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
             ),
           ),
           const SizedBox(height: 12),
+          if (canEditStructure)
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _editingWorkout || _swapping
+                    ? null
+                    : _openWorkoutEditor,
+                icon: _editingWorkout
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.tune_rounded),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(50),
+                ),
+                label: Text(
+                  _editingWorkout
+                      ? 'OPENING EDITOR…'
+                      : 'EDIT WORKOUT (${_sessionExercises.length})',
+                ),
+              ),
+            ),
+          if (canEditStructure) const SizedBox(height: 10),
           if (phase == LivePhase.ready && currentSet == 1)
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
-                onPressed: _swapping ? null : _openSwapFlow,
+                onPressed: _swapping || _editingWorkout ? null : _openSwapFlow,
                 icon: _swapping
                     ? const SizedBox(
                         width: 18,
@@ -730,7 +807,9 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
                 style: OutlinedButton.styleFrom(
                   minimumSize: const Size.fromHeight(50),
                 ),
-                label: Text(_swapping ? 'FINDING ALTERNATIVES…' : 'REPLACE EXERCISE'),
+                label: Text(
+                  _swapping ? 'FINDING ALTERNATIVES…' : 'REPLACE EXERCISE',
+                ),
               ),
             ),
           if (phase == LivePhase.ready && currentSet == 1)
@@ -750,7 +829,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
-                onPressed: _swapping ? null : _startSet,
+                onPressed: _swapping || _editingWorkout ? null : _startSet,
                 icon: const Icon(Icons.play_arrow_rounded),
                 style: ElevatedButton.styleFrom(
                   minimumSize: const Size.fromHeight(58),
@@ -847,7 +926,6 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
     );
   }
 
-
   Widget _progressionSuggestionCard() {
     final suggestion = _progressionSuggestion;
     if (suggestion == null) return const SizedBox.shrink();
@@ -870,7 +948,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'LeanEat progression suggestion',
+                  'LeanIt progression suggestion',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
