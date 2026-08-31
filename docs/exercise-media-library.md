@@ -13,6 +13,8 @@ Every active exercise should ultimately have reviewed, original or properly lice
 
 The Flutter client selects the saved user's exercise-model preference first and then their profile sex. It does not hard-code individual exercise names.
 
+Photo-first media is now used in the exercise library, workout cards, exercise details and the live workout screen. Stick-figure movement diagrams are no longer treated as the production fallback in these main user flows.
+
 ## Storage naming convention
 
 Use one folder per exercise id, for example:
