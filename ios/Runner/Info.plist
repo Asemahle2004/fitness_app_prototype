@@ -26,6 +26,10 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>LeanIt uses the camera only when you choose to take a private progress photo.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>LeanIt accesses your photo library only when you choose a progress photo.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
