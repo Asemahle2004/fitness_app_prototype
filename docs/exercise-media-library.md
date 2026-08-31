@@ -15,6 +15,8 @@ The Flutter client selects the saved user's exercise-model preference first and 
 
 Photo-first media is now used in the exercise library, workout cards, exercise details and the live workout screen. Stick-figure movement diagrams are no longer treated as the production fallback in these main user flows.
 
+The persistent member navigation exposes the full exercise library directly from the `Exercises` tab, so users can browse the complete catalogue without repeating onboarding.
+
 ## Storage naming convention
 
 Use one folder per exercise id, for example:
