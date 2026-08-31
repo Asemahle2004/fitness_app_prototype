@@ -96,6 +96,8 @@ class ExerciseSetPerformance {
   }
 
   String? get nextTargetSuggestion {
+    if (isDropSet) return null;
+
     if (durationSeconds != null) {
       final increase = durationSeconds! < 60 ? 5 : 10;
       return 'Try ${durationSeconds! + increase}s next time if form stays controlled.';
