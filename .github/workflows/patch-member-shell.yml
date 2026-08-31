@@ -1,0 +1,29 @@
+name: One-time member shell patch
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Patch member shell
+        run: python tools/patch_member_shell.py
+
+      - name: Commit patch and remove one-time files
+        run: |
+          rm tools/patch_member_shell.py
+          rm .github/workflows/patch-member-shell.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Add persistent member dashboard navigation"
+          git push
