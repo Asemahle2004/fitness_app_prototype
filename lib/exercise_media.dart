@@ -1,5 +1,4 @@
-import 'dart:typed_data';
-
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -30,7 +29,6 @@ class _ExerciseMediaState extends State<ExerciseMedia> {
   late final ExerciseRepository _repository;
   late Future<OnlineExercise?> _future;
   late Future<LeanEatProfile?> _profileFuture;
-  final Map<String, Future<Uint8List>> _imageDownloads = {};
 
   @override
   void initState() {
@@ -46,20 +44,7 @@ class _ExerciseMediaState extends State<ExerciseMedia> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.exerciseName != widget.exerciseName) {
       _future = _repository.fetchByName(widget.exerciseName);
-      _imageDownloads.clear();
     }
-  }
-
-  Future<Uint8List> _imageBytes(String path) {
-    return _imageDownloads.putIfAbsent(
-      path,
-      () => _repository.downloadImage(path),
-    );
-  }
-
-  bool _isRemoteUrl(String value) {
-    final lower = value.toLowerCase();
-    return lower.startsWith('https://') || lower.startsWith('http://');
   }
 
   Widget _photoPending() {
@@ -127,40 +112,14 @@ class _ExerciseMediaState extends State<ExerciseMedia> {
     );
   }
 
-  Widget _remotePhoto(String imageUrl) {
-    return Image.network(
-      imageUrl,
+  Widget _cachedPhoto(String imagePath) {
+    final imageUrl = _repository.publicImageUrl(imagePath);
+    return CachedNetworkImage(
+      imageUrl: imageUrl,
       fit: widget.fit,
-      gaplessPlayback: true,
-      loadingBuilder: (context, child, progress) {
-        if (progress == null) return child;
-        return _loadingPhoto();
-      },
-      errorBuilder: (_, __, ___) => _fallback(),
-    );
-  }
-
-  Widget _storedOrRemotePhoto(String imagePath) {
-    if (_isRemoteUrl(imagePath)) {
-      return _remotePhoto(imagePath);
-    }
-
-    return FutureBuilder<Uint8List>(
-      future: _imageBytes(imagePath),
-      builder: (context, imageSnapshot) {
-        if (imageSnapshot.hasData && imageSnapshot.data!.isNotEmpty) {
-          return Image.memory(
-            imageSnapshot.data!,
-            fit: widget.fit,
-            gaplessPlayback: true,
-            errorBuilder: (_, __, ___) => _fallback(),
-          );
-        }
-        if (imageSnapshot.hasError) {
-          return _fallback();
-        }
-        return _loadingPhoto();
-      },
+      fadeInDuration: const Duration(milliseconds: 120),
+      placeholder: (_, __) => _loadingPhoto(),
+      errorWidget: (_, __, ___) => _fallback(),
     );
   }
 
@@ -168,7 +127,7 @@ class _ExerciseMediaState extends State<ExerciseMedia> {
     return Stack(
       fit: StackFit.expand,
       children: [
-        _storedOrRemotePhoto(imagePath),
+        _cachedPhoto(imagePath),
         Positioned(
           left: widget.compact ? 4 : 10,
           right: widget.compact ? 4 : 10,
@@ -218,7 +177,7 @@ class _ExerciseMediaState extends State<ExerciseMedia> {
         final reviewedPath =
             online?.reviewedImageForSex(profile?.preferredVisualSex);
         if (reviewedPath != null && reviewedPath.isNotEmpty) {
-          return _storedOrRemotePhoto(reviewedPath);
+          return _cachedPhoto(reviewedPath);
         }
 
         final referencePath = online?.hasReferenceGenericImage == true
