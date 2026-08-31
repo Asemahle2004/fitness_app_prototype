@@ -73,7 +73,7 @@ class _ExerciseMediaState extends State<ExerciseMedia> {
           if (!widget.compact) ...[
             const SizedBox(height: 6),
             const Text(
-              'Photo demonstration is being added to the LeanEat exercise library.',
+              'Reviewed LeanEat photo demonstration is being prepared.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 12,
@@ -111,7 +111,7 @@ class _ExerciseMediaState extends State<ExerciseMedia> {
         final profile = values != null && values.length > 1
             ? values[1] as LeanEatProfile?
             : null;
-        final imagePath = online?.imageForSex(profile?.preferredVisualSex);
+        final imagePath = online?.reviewedImageForSex(profile?.preferredVisualSex);
         if (imagePath != null && imagePath.isNotEmpty) {
           return Image.network(
             _repository.publicImageUrl(imagePath),
