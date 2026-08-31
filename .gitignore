@@ -33,6 +33,10 @@ migrate_working_dir/
 /build/
 /coverage/
 
+# LeanEat production exercise source media stays local and is uploaded to
+# Supabase Storage with tools/exercise_media_import.py.
+/exercise_media_source/
+
 # Symbolication related
 app.*.symbols
 
