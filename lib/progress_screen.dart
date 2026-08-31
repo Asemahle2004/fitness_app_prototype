@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'body_progress_entry_section.dart';
 import 'exercise_performance_store.dart';
 import 'exercise_progress_entry_section.dart';
+import 'run_tracking_entry_section.dart';
 import 'training_store.dart';
 import 'workout_calendar_entry_section.dart';
 
@@ -170,6 +171,8 @@ class _ProgressScreenState extends State<ProgressScreen> {
                 ),
                 const SizedBox(height: 28),
                 const BodyProgressEntrySection(),
+                const SizedBox(height: 28),
+                const RunTrackingEntrySection(),
                 const SizedBox(height: 28),
                 WorkoutCalendarEntrySection(records: records),
                 const SizedBox(height: 28),
