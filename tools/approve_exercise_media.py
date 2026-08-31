@@ -15,6 +15,7 @@ Never commit the service-role key to GitHub.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 import os
 import sys
@@ -62,7 +63,7 @@ def _upsert_asset(service_key: str, *, exercise_id: str, sex: str,
                   storage_path: str, source: str, license_name: str,
                   notes: str) -> None:
     params = urllib.parse.urlencode({"on_conflict": "exercise_id,sex,media_type"})
-    payload = json.dumps({
+    data = {
         "exercise_id": exercise_id,
         "sex": sex,
         "media_type": "image",
@@ -72,12 +73,8 @@ def _upsert_asset(service_key: str, *, exercise_id: str, sex: str,
         "technique_reviewed": True,
         "rights_reviewed": True,
         "review_notes": notes,
-        "reviewed_at": "now()",
-    }).replace('"now()"', 'null').encode("utf-8")
-
-    # reviewed_at is set separately so PostgREST does not receive a SQL expression.
-    data = json.loads(payload.decode("utf-8"))
-    data.pop("reviewed_at", None)
+        "reviewed_at": datetime.now(timezone.utc).isoformat(),
+    }
     _request(
         f"{PROJECT_URL}/rest/v1/exercise_media_assets?{params}",
         method="POST",
