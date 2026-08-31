@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class OnlineExercise {
@@ -102,10 +104,14 @@ class OnlineExercise {
     final rawForce = map['force']?.toString().trim();
     final rawMechanic = map['mechanic']?.toString().trim();
     final rawLevel = map['level']?.toString().trim();
-    final images = (map['images'] as List?)?.whereType<String>().toList() ?? const <String>[];
+    final images =
+        (map['images'] as List?)?.whereType<String>().toList() ??
+        const <String>[];
 
     String equipmentLabel;
-    if (rawEquipment == null || rawEquipment.isEmpty || rawEquipment == 'body only') {
+    if (rawEquipment == null ||
+        rawEquipment.isEmpty ||
+        rawEquipment == 'body only') {
       equipmentLabel = 'Bodyweight';
     } else if (rawEquipment == 'bands') {
       equipmentLabel = 'Resistance Bands';
@@ -117,7 +123,8 @@ class OnlineExercise {
 
     final movementParts = <String>[
       if (rawForce != null && rawForce.isNotEmpty) _titleCase(rawForce),
-      if (rawMechanic != null && rawMechanic.isNotEmpty) _titleCase(rawMechanic),
+      if (rawMechanic != null && rawMechanic.isNotEmpty)
+        _titleCase(rawMechanic),
     ];
 
     String? imageUrl;
@@ -136,7 +143,8 @@ class OnlineExercise {
       secondaryMuscles: strings(map['secondaryMuscles']),
       equipment: [equipmentLabel],
       difficulty: rawLevel == null ? null : _titleCase(rawLevel),
-      movementPattern: movementParts.isEmpty ? null : movementParts.join(' • '),
+      movementPattern:
+          movementParts.isEmpty ? null : movementParts.join(' • '),
       locations: _locationsFor(equipmentLabel, rawCategory),
       instructions: (map['instructions'] as List?)
               ?.whereType<String>()
@@ -157,6 +165,33 @@ class OnlineExercise {
       mediaReviewNotes:
           '[reference-generic] Licensed source image; technique not independently reviewed by LeanIt.',
     );
+  }
+
+  Map<String, dynamic> toCacheMap() {
+    return {
+      'id': id,
+      'name': name,
+      'category': category,
+      'primary_muscles': primaryMuscles,
+      'secondary_muscles': secondaryMuscles,
+      'equipment': equipment,
+      'difficulty': difficulty,
+      'movement_pattern': movementPattern,
+      'locations': locations,
+      'instructions': instructions,
+      'common_mistakes': commonMistakes,
+      'image_path': imagePath,
+      'video_path': videoPath,
+      'male_image_path': maleImagePath,
+      'female_image_path': femaleImagePath,
+      'male_video_path': maleVideoPath,
+      'female_video_path': femaleVideoPath,
+      'male_image_reviewed': maleImageReviewed,
+      'female_image_reviewed': femaleImageReviewed,
+      'media_source': mediaSource,
+      'media_license': mediaLicense,
+      'media_review_notes': mediaReviewNotes,
+    };
   }
 
   /// Returns only media that has been explicitly reviewed for production use.
@@ -195,7 +230,9 @@ class OnlineExercise {
 
     if (hasApprovedGenericImage) return imagePath;
     if (maleImageReviewed && _hasText(maleImagePath)) return maleImagePath;
-    if (femaleImageReviewed && _hasText(femaleImagePath)) return femaleImagePath;
+    if (femaleImageReviewed && _hasText(femaleImagePath)) {
+      return femaleImagePath;
+    }
     return null;
   }
 
@@ -229,7 +266,10 @@ class OnlineExercise {
         .trim()
         .split(RegExp(r'\s+'))
         .where((part) => part.isNotEmpty)
-        .map((part) => '${part[0].toUpperCase()}${part.substring(1).toLowerCase()}')
+        .map(
+          (part) =>
+              '${part[0].toUpperCase()}${part.substring(1).toLowerCase()}',
+        )
         .join(' ');
   }
 
@@ -254,7 +294,8 @@ class OnlineExercise {
     return const ['Gym'];
   }
 
-  static bool _hasText(String? value) => value != null && value.trim().isNotEmpty;
+  static bool _hasText(String? value) =>
+      value != null && value.trim().isNotEmpty;
 }
 
 class ExerciseRepository {
@@ -264,6 +305,11 @@ class ExerciseRepository {
 
   static const String _freeCatalogueUrl =
       'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/dist/exercises.json';
+  static const String _freeCatalogueCacheKey =
+      'leanit_free_exercise_catalogue_v1';
+  static const String _freeCatalogueCacheTimeKey =
+      'leanit_free_exercise_catalogue_cached_at_v1';
+  static const Duration _freeCatalogueCacheMaxAge = Duration(days: 7);
   static Future<List<OnlineExercise>>? _freeCatalogueCache;
 
   const ExerciseRepository(
@@ -303,8 +349,8 @@ class ExerciseRepository {
 
       if (data != null) return OnlineExercise.fromMap(data);
     } catch (_) {
-      // Fall through to the free catalogue. This keeps the exercise library
-      // useful when Supabase is temporarily unavailable or not connected yet.
+      // Fall through to the cached/free catalogue. This keeps the exercise
+      // library useful when Supabase is temporarily unavailable.
     }
 
     final catalogue = await _freeCatalogueSafely();
@@ -335,11 +381,13 @@ class ExerciseRepository {
         merged[exercise.id] = exercise;
       }
     } catch (_) {
-      // Free catalogue remains available as the fallback.
+      // The cached/free catalogue remains available as the fallback.
     }
 
     final result = merged.values.toList(growable: false)
-      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      ..sort(
+        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+      );
     return result;
   }
 
@@ -360,7 +408,8 @@ class ExerciseRepository {
 
   Future<Map<String, int>> fetchMediaCoverage() async {
     try {
-      final data = await client.from('exercise_media_coverage').select().single();
+      final data =
+          await client.from('exercise_media_coverage').select().single();
       int number(String key) => (data[key] as num?)?.toInt() ?? 0;
       return {
         'active': number('active_exercises'),
@@ -378,7 +427,8 @@ class ExerciseRepository {
         'female': all.where((e) => e.femaleImagePath != null).length,
         'maleReviewed': all.where((e) => e.hasReviewedMaleImage).length,
         'femaleReviewed': all.where((e) => e.hasReviewedFemaleImage).length,
-        'fullyPublishable': all.where((e) => e.hasCompleteReviewedImagePair).length,
+        'fullyPublishable':
+            all.where((e) => e.hasCompleteReviewedImagePair).length,
       };
     }
   }
@@ -396,7 +446,9 @@ class ExerciseRepository {
     if (value.startsWith('https://') || value.startsWith('http://')) {
       final response = await http.get(Uri.parse(value));
       if (response.statusCode != 200) {
-        throw StateError('Could not download exercise image (${response.statusCode}).');
+        throw StateError(
+          'Could not download exercise image (${response.statusCode}).',
+        );
       }
       return response.bodyBytes;
     }
@@ -416,9 +468,79 @@ class ExerciseRepository {
   }
 
   Future<List<OnlineExercise>> _loadFreeCatalogue() async {
+    final preferences = await SharedPreferences.getInstance();
+    final cached = _readCachedCatalogue(preferences);
+
+    if (cached.isNotEmpty) {
+      final cachedAtMillis =
+          preferences.getInt(_freeCatalogueCacheTimeKey) ?? 0;
+      final cachedAt = DateTime.fromMillisecondsSinceEpoch(cachedAtMillis);
+      final isStale = cachedAtMillis == 0 ||
+          DateTime.now().difference(cachedAt) > _freeCatalogueCacheMaxAge;
+
+      if (isStale) {
+        unawaited(
+          _refreshFreeCatalogue(preferences).catchError(
+            (_) => cached,
+          ),
+        );
+      }
+
+      return cached;
+    }
+
+    return _refreshFreeCatalogue(preferences);
+  }
+
+  List<OnlineExercise> _readCachedCatalogue(
+    SharedPreferences preferences,
+  ) {
+    final raw = preferences.getString(_freeCatalogueCacheKey);
+    if (raw == null || raw.trim().isEmpty) {
+      return const <OnlineExercise>[];
+    }
+
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return const <OnlineExercise>[];
+
+      final exercises = <OnlineExercise>[];
+      for (final item in decoded) {
+        if (item is! Map) continue;
+        exercises.add(
+          OnlineExercise.fromMap(Map<String, dynamic>.from(item)),
+        );
+      }
+      exercises.sort(
+        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+      );
+      return exercises;
+    } catch (_) {
+      return const <OnlineExercise>[];
+    }
+  }
+
+  Future<List<OnlineExercise>> _refreshFreeCatalogue(
+    SharedPreferences preferences,
+  ) async {
+    final exercises = await _fetchFreeCatalogueFromNetwork();
+    final cacheJson = jsonEncode(
+      exercises.map((exercise) => exercise.toCacheMap()).toList(),
+    );
+
+    await preferences.setString(_freeCatalogueCacheKey, cacheJson);
+    await preferences.setInt(
+      _freeCatalogueCacheTimeKey,
+      DateTime.now().millisecondsSinceEpoch,
+    );
+
+    return exercises;
+  }
+
+  Future<List<OnlineExercise>> _fetchFreeCatalogueFromNetwork() async {
     final response = await http
         .get(Uri.parse(_freeCatalogueUrl))
-        .timeout(const Duration(seconds: 20));
+        .timeout(const Duration(seconds: 12));
 
     if (response.statusCode != 200) {
       throw StateError(
@@ -428,7 +550,9 @@ class ExerciseRepository {
 
     final decoded = jsonDecode(utf8.decode(response.bodyBytes));
     if (decoded is! List) {
-      throw const FormatException('Free exercise catalogue is not a JSON list.');
+      throw const FormatException(
+        'Free exercise catalogue is not a JSON list.',
+      );
     }
 
     final exercises = <OnlineExercise>[];
