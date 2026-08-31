@@ -29,9 +29,10 @@ class ProgressionEngine {
       final range = _numbers(exercise.reps);
       final upper = range.length >= 2 ? range[1] : null;
       final step = prior < 60 ? 5 : 10;
-      final suggested = upper != null && prior < upper
-          ? (prior + step).clamp(1, upper)
-          : prior + step;
+      final suggested = (upper != null && prior < upper
+              ? (prior + step).clamp(1, upper)
+              : prior + step)
+          .toInt();
       return ProgressionSuggestion(
         targetReps: null,
         targetWeightKg: null,
@@ -64,7 +65,7 @@ class ProgressionEngine {
         );
       }
 
-      final nextReps = (previousReps + 1).clamp(lower, upper);
+      final nextReps = (previousReps + 1).clamp(lower, upper).toInt();
       return ProgressionSuggestion(
         targetReps: nextReps,
         targetWeightKg: previousWeight,
@@ -76,7 +77,7 @@ class ProgressionEngine {
     }
 
     if (previousReps < upper) {
-      final nextReps = (previousReps + 1).clamp(lower, upper);
+      final nextReps = (previousReps + 1).clamp(lower, upper).toInt();
       return ProgressionSuggestion(
         targetReps: nextReps,
         targetWeightKg: null,
