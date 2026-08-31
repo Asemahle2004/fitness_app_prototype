@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class OnlineExercise {
@@ -205,5 +207,9 @@ class ExerciseRepository {
       return value;
     }
     return client.storage.from(mediaBucket).getPublicUrl(value);
+  }
+
+  Future<Uint8List> downloadImage(String imagePath) {
+    return client.storage.from(mediaBucket).download(imagePath.trim());
   }
 }
