@@ -4,7 +4,7 @@ import 'workout_engine.dart';
 import 'exercise_repository.dart';
 import 'live_workout_screen.dart';
 import 'safety_engine.dart';
-import 'movement_visual.dart';
+import 'exercise_media.dart';
 import 'exercise_library_screen.dart';
 import 'workout_structure.dart';
 import 'progress_screen.dart';
@@ -4075,8 +4075,10 @@ class _WorkoutDetailScreenState extends State<WorkoutDetailScreen> {
                                     borderRadius: BorderRadius.circular(18),
                                   ),
                                   clipBehavior: Clip.antiAlias,
-                                  child: MovementVisual(
+                                  child: ExerciseMedia(
                                     exerciseName: exercise.name,
+                                    localAsset: exercise.visualAsset,
+                                    fit: BoxFit.cover,
                                     compact: true,
                                   ),
                                 ),
@@ -4358,48 +4360,20 @@ class _ExerciseDetailScreenState extends State<ExerciseDetailScreen> {
     }
   }
 
-  Widget _placeholderVisual([String? movementPattern]) {
-    return MovementVisual(
-      exerciseName: exercise.name,
-      movementPattern: movementPattern,
-    );
-  }
-
-  Widget _localVisual([String? movementPattern]) {
-    final visualAsset = exercise.visualAsset;
-    if (visualAsset == null || visualAsset.isEmpty) {
-      return _placeholderVisual(movementPattern);
-    }
-
-    return Image.asset(
-      visualAsset,
-      fit: BoxFit.contain,
-      errorBuilder: (context, error, stackTrace) =>
-          _placeholderVisual(movementPattern),
-    );
-  }
-
   Widget _exerciseVisual(
     OnlineExercise? onlineExercise, {
     required bool isLoading,
   }) {
-    final imagePath = onlineExercise?.imagePath;
-
-    if (imagePath != null && imagePath.isNotEmpty) {
-      final imageUrl = _exerciseRepository.publicImageUrl(imagePath);
-      return Image.network(
-        imageUrl,
-        fit: BoxFit.contain,
-        errorBuilder: (context, error, stackTrace) =>
-            _localVisual(onlineExercise?.movementPattern),
-      );
-    }
-
-    if (isLoading && exercise.visualAsset == null) {
+    if (isLoading && exercise.visualAsset == null && onlineExercise == null) {
       return const Center(child: CircularProgressIndicator());
     }
 
-    return _localVisual(onlineExercise?.movementPattern);
+    return ExerciseMedia(
+      exerciseName: exercise.name,
+      localAsset: exercise.visualAsset,
+      movementPattern: onlineExercise?.movementPattern,
+      fit: BoxFit.contain,
+    );
   }
 
   @override
