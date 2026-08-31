@@ -200,6 +200,10 @@ class ExerciseRepository {
   }
 
   String publicImageUrl(String imagePath) {
-    return client.storage.from(mediaBucket).getPublicUrl(imagePath);
+    final value = imagePath.trim();
+    if (value.startsWith('https://') || value.startsWith('http://')) {
+      return value;
+    }
+    return client.storage.from(mediaBucket).getPublicUrl(value);
   }
 }
