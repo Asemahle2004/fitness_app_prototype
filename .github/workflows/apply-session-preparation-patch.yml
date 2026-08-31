@@ -1,0 +1,35 @@
+name: Apply session preparation integration
+
+on:
+  push:
+    branches:
+      - feature/session-preparation
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[session-preparation-applied]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/session-preparation
+          fetch-depth: 0
+
+      - name: Apply session preparation patch
+        run: python tools/apply_session_preparation_patch.py
+
+      - name: Commit generated integration
+        run: |
+          if git diff --quiet; then
+            echo "No session preparation changes required."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/live_workout_screen.dart
+          git commit -m "Wire preparation and recovery into Live Workout [session-preparation-applied]"
+          git push origin HEAD:feature/session-preparation
