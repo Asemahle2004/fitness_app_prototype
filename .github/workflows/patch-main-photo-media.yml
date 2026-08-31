@@ -1,0 +1,30 @@
+name: One-time main photo media patch
+
+on:
+  push:
+    paths:
+      - '.github/workflows/patch-main-photo-media.yml'
+      - 'tools/patch_main_photo_media.py'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Patch main photo media
+        run: python tools/patch_main_photo_media.py
+
+      - name: Commit patch and remove one-time files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/main.dart
+          git rm tools/patch_main_photo_media.py .github/workflows/patch-main-photo-media.yml
+          git commit -m "Use photo-first media on all main workout screens"
+          git push
