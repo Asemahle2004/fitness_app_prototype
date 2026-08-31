@@ -18,6 +18,11 @@ class OnlineExercise {
   final String? femaleImagePath;
   final String? maleVideoPath;
   final String? femaleVideoPath;
+  final bool maleImageReviewed;
+  final bool femaleImageReviewed;
+  final String? mediaSource;
+  final String? mediaLicense;
+  final String? mediaReviewNotes;
 
   const OnlineExercise({
     required this.id,
@@ -37,6 +42,11 @@ class OnlineExercise {
     required this.femaleImagePath,
     required this.maleVideoPath,
     required this.femaleVideoPath,
+    required this.maleImageReviewed,
+    required this.femaleImageReviewed,
+    required this.mediaSource,
+    required this.mediaLicense,
+    required this.mediaReviewNotes,
   });
 
   factory OnlineExercise.fromMap(Map<String, dynamic> map) {
@@ -64,18 +74,53 @@ class OnlineExercise {
       femaleImagePath: map['female_image_path'] as String?,
       maleVideoPath: map['male_video_path'] as String?,
       femaleVideoPath: map['female_video_path'] as String?,
+      maleImageReviewed: map['male_image_reviewed'] == true,
+      femaleImageReviewed: map['female_image_reviewed'] == true,
+      mediaSource: map['media_source'] as String?,
+      mediaLicense: map['media_license'] as String?,
+      mediaReviewNotes: map['media_review_notes'] as String?,
     );
   }
 
-  String? imageForSex(String? sex) {
+  /// Returns only media that has been explicitly reviewed for production use.
+  /// A path existing in Storage is not enough by itself: technique and media
+  /// rights must both be approved before LeanEat shows it as final media.
+  String? reviewedImageForSex(String? sex) {
     if (sex == 'Female') {
-      return femaleImagePath ?? imagePath ?? maleImagePath;
+      if (femaleImageReviewed && _hasText(femaleImagePath)) {
+        return femaleImagePath;
+      }
+      if (maleImageReviewed && _hasText(maleImagePath)) {
+        return maleImagePath;
+      }
+      return null;
     }
+
     if (sex == 'Male') {
-      return maleImagePath ?? imagePath ?? femaleImagePath;
+      if (maleImageReviewed && _hasText(maleImagePath)) {
+        return maleImagePath;
+      }
+      if (femaleImageReviewed && _hasText(femaleImagePath)) {
+        return femaleImagePath;
+      }
+      return null;
     }
-    return imagePath ?? maleImagePath ?? femaleImagePath;
+
+    if (maleImageReviewed && _hasText(maleImagePath)) return maleImagePath;
+    if (femaleImageReviewed && _hasText(femaleImagePath)) return femaleImagePath;
+    return null;
   }
+
+  bool get hasReviewedMaleImage =>
+      maleImageReviewed && _hasText(maleImagePath);
+
+  bool get hasReviewedFemaleImage =>
+      femaleImageReviewed && _hasText(femaleImagePath);
+
+  bool get hasCompleteReviewedImagePair =>
+      hasReviewedMaleImage && hasReviewedFemaleImage;
+
+  static bool _hasText(String? value) => value != null && value.trim().isNotEmpty;
 }
 
 class ExerciseRepository {
@@ -139,6 +184,19 @@ class ExerciseRepository {
         .whereType<Map<String, dynamic>>()
         .map(OnlineExercise.fromMap)
         .toList(growable: false);
+  }
+
+  Future<Map<String, int>> fetchMediaCoverage() async {
+    final data = await client.from('exercise_media_coverage').select().single();
+    int number(String key) => (data[key] as num?)?.toInt() ?? 0;
+    return {
+      'active': number('active_exercises'),
+      'male': number('male_images'),
+      'female': number('female_images'),
+      'maleReviewed': number('male_reviewed'),
+      'femaleReviewed': number('female_reviewed'),
+      'fullyPublishable': number('fully_publishable_exercises'),
+    };
   }
 
   String publicImageUrl(String imagePath) {
