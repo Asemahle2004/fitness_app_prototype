@@ -57,6 +57,11 @@ class _ExerciseMediaState extends State<ExerciseMedia> {
     );
   }
 
+  bool _isRemoteUrl(String value) {
+    final lower = value.toLowerCase();
+    return lower.startsWith('https://') || lower.startsWith('http://');
+  }
+
   Widget _photoPending() {
     return Container(
       color: const Color(0xFFF2F6F1),
@@ -122,7 +127,24 @@ class _ExerciseMediaState extends State<ExerciseMedia> {
     );
   }
 
+  Widget _remotePhoto(String imageUrl) {
+    return Image.network(
+      imageUrl,
+      fit: widget.fit,
+      gaplessPlayback: true,
+      loadingBuilder: (context, child, progress) {
+        if (progress == null) return child;
+        return _loadingPhoto();
+      },
+      errorBuilder: (_, __, ___) => _fallback(),
+    );
+  }
+
   Widget _reviewedPhoto(String imagePath) {
+    if (_isRemoteUrl(imagePath)) {
+      return _remotePhoto(imagePath);
+    }
+
     return FutureBuilder<Uint8List>(
       future: _imageBytes(imagePath),
       builder: (context, imageSnapshot) {
