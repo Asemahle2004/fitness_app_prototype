@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'account_screen.dart';
+import 'custom_workouts_screen.dart';
 import 'exercise_library_screen.dart';
 import 'lean_eat_theme.dart';
 import 'progress_screen.dart';
@@ -37,6 +38,7 @@ class _LeanEatMemberShellState extends State<LeanEatMemberShell> {
           fallbackProgrammeHome: widget.programmeHome,
         ),
         ExerciseLibraryScreen(client: Supabase.instance.client),
+        CustomWorkoutsScreen(client: Supabase.instance.client),
         const ReadinessScreen(),
         const ProgressScreen(),
         const LeanEatAccountScreen(),
@@ -65,6 +67,11 @@ class _LeanEatMemberShellState extends State<LeanEatMemberShell> {
       icon: Icon(Icons.fitness_center_outlined),
       selectedIcon: Icon(Icons.fitness_center_rounded),
       label: 'Exercises',
+    ),
+    NavigationDestination(
+      icon: Icon(Icons.view_list_outlined),
+      selectedIcon: Icon(Icons.view_list_rounded),
+      label: 'Workouts',
     ),
     NavigationDestination(
       icon: Icon(Icons.favorite_border_rounded),
