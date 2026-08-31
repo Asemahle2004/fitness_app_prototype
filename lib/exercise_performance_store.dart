@@ -23,23 +23,26 @@ class ExerciseSetPerformance {
   });
 
   factory ExerciseSetPerformance.fromMap(Map<String, dynamic> map) {
+    num? number(dynamic value) {
+      if (value is num) return value;
+      return num.tryParse(value?.toString() ?? '');
+    }
+
+    final rawSetNumber = number(map['set_number'] ?? map['setNumber']);
+    final rawWeight = number(map['weight_kg'] ?? map['weightKg']);
+    final rawDuration = number(
+      map['duration_seconds'] ?? map['durationSeconds'],
+    );
+
     return ExerciseSetPerformance(
       workoutTitle:
           (map['workout_title'] ?? map['workoutTitle'])?.toString() ?? 'Workout',
       exerciseName:
           (map['exercise_name'] ?? map['exerciseName'])?.toString() ?? 'Exercise',
-      setNumber: (map['set_number'] ?? map['setNumber'] as num?) is num
-          ? ((map['set_number'] ?? map['setNumber']) as num).toInt()
-          : 1,
-      reps: (map['reps'] as num?)?.toInt(),
-      weightKg: (map['weight_kg'] ?? map['weightKg'] as num?) is num
-          ? ((map['weight_kg'] ?? map['weightKg']) as num).toDouble()
-          : null,
-      durationSeconds:
-          (map['duration_seconds'] ?? map['durationSeconds'] as num?) is num
-              ? ((map['duration_seconds'] ?? map['durationSeconds']) as num)
-                  .toInt()
-              : null,
+      setNumber: rawSetNumber?.toInt() ?? 1,
+      reps: number(map['reps'])?.toInt(),
+      weightKg: rawWeight?.toDouble(),
+      durationSeconds: rawDuration?.toInt(),
       performedAt: DateTime.tryParse(
             (map['performed_at'] ?? map['performedAt'])?.toString() ?? '',
           ) ??
