@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'exercise_repository.dart';
-import 'movement_visual.dart';
 import 'profile_service.dart';
 
 class ExerciseMedia extends StatefulWidget {
@@ -10,6 +9,7 @@ class ExerciseMedia extends StatefulWidget {
   final String? localAsset;
   final String? movementPattern;
   final BoxFit fit;
+  final bool compact;
 
   const ExerciseMedia({
     super.key,
@@ -17,6 +17,7 @@ class ExerciseMedia extends StatefulWidget {
     this.localAsset,
     this.movementPattern,
     this.fit = BoxFit.contain,
+    this.compact = false,
   });
 
   @override
@@ -45,22 +46,57 @@ class _ExerciseMediaState extends State<ExerciseMedia> {
     }
   }
 
-  Widget _fallback([String? movementPattern]) {
+  Widget _photoPending() {
+    return Container(
+      color: const Color(0xFFF2F6F1),
+      padding: EdgeInsets.all(widget.compact ? 6 : 18),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.photo_camera_back_outlined,
+            size: widget.compact ? 24 : 54,
+            color: const Color(0xFF2F7D5C),
+          ),
+          SizedBox(height: widget.compact ? 4 : 10),
+          Text(
+            widget.exerciseName,
+            textAlign: TextAlign.center,
+            maxLines: widget.compact ? 2 : 3,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: widget.compact ? 10 : 16,
+              fontWeight: FontWeight.w800,
+              color: const Color(0xFF153B2F),
+            ),
+          ),
+          if (!widget.compact) ...[
+            const SizedBox(height: 6),
+            const Text(
+              'Photo demonstration is being added to the LeanEat exercise library.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.35,
+                color: Color(0xFF718078),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _fallback() {
     final asset = widget.localAsset;
     if (asset != null && asset.isNotEmpty) {
       return Image.asset(
         asset,
         fit: widget.fit,
-        errorBuilder: (_, _, _) => MovementVisual(
-          exerciseName: widget.exerciseName,
-          movementPattern: movementPattern ?? widget.movementPattern,
-        ),
+        errorBuilder: (_, __, ___) => _photoPending(),
       );
     }
-    return MovementVisual(
-      exerciseName: widget.exerciseName,
-      movementPattern: movementPattern ?? widget.movementPattern,
-    );
+    return _photoPending();
   }
 
   @override
@@ -69,17 +105,21 @@ class _ExerciseMediaState extends State<ExerciseMedia> {
       future: Future.wait<Object?>([_future, _profileFuture]),
       builder: (context, snapshot) {
         final values = snapshot.data;
-        final online = values != null && values.isNotEmpty ? values[0] as OnlineExercise? : null;
-        final profile = values != null && values.length > 1 ? values[1] as LeanEatProfile? : null;
+        final online = values != null && values.isNotEmpty
+            ? values[0] as OnlineExercise?
+            : null;
+        final profile = values != null && values.length > 1
+            ? values[1] as LeanEatProfile?
+            : null;
         final imagePath = online?.imageForSex(profile?.preferredVisualSex);
         if (imagePath != null && imagePath.isNotEmpty) {
           return Image.network(
             _repository.publicImageUrl(imagePath),
             fit: widget.fit,
-            errorBuilder: (_, _, _) => _fallback(online?.movementPattern),
+            errorBuilder: (_, __, ___) => _fallback(),
           );
         }
-        return _fallback(online?.movementPattern);
+        return _fallback();
       },
     );
   }
