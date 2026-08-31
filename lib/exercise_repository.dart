@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class OnlineExercise {
@@ -84,6 +86,79 @@ class OnlineExercise {
     );
   }
 
+  factory OnlineExercise.fromFreeExerciseDb(Map<String, dynamic> map) {
+    List<String> strings(dynamic value) {
+      final list = value as List?;
+      if (list == null) return const [];
+      return list
+          .whereType<String>()
+          .map(_titleCase)
+          .toList(growable: false);
+    }
+
+    final rawName = map['name']?.toString().trim() ?? 'Exercise';
+    final rawEquipment = map['equipment']?.toString().trim();
+    final rawCategory = map['category']?.toString().trim();
+    final rawForce = map['force']?.toString().trim();
+    final rawMechanic = map['mechanic']?.toString().trim();
+    final rawLevel = map['level']?.toString().trim();
+    final images = (map['images'] as List?)?.whereType<String>().toList() ?? const <String>[];
+
+    String equipmentLabel;
+    if (rawEquipment == null || rawEquipment.isEmpty || rawEquipment == 'body only') {
+      equipmentLabel = 'Bodyweight';
+    } else if (rawEquipment == 'bands') {
+      equipmentLabel = 'Resistance Bands';
+    } else if (rawEquipment == 'kettlebells') {
+      equipmentLabel = 'Kettlebell';
+    } else {
+      equipmentLabel = _titleCase(rawEquipment);
+    }
+
+    final movementParts = <String>[
+      if (rawForce != null && rawForce.isNotEmpty) _titleCase(rawForce),
+      if (rawMechanic != null && rawMechanic.isNotEmpty) _titleCase(rawMechanic),
+    ];
+
+    String? imageUrl;
+    if (images.isNotEmpty) {
+      final base = Uri.parse(
+        'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/',
+      );
+      imageUrl = base.resolve(images.first).toString();
+    }
+
+    return OnlineExercise(
+      id: _slug(rawName),
+      name: rawName,
+      category: rawCategory == null ? null : _titleCase(rawCategory),
+      primaryMuscles: strings(map['primaryMuscles']),
+      secondaryMuscles: strings(map['secondaryMuscles']),
+      equipment: [equipmentLabel],
+      difficulty: rawLevel == null ? null : _titleCase(rawLevel),
+      movementPattern: movementParts.isEmpty ? null : movementParts.join(' • '),
+      locations: _locationsFor(equipmentLabel, rawCategory),
+      instructions: (map['instructions'] as List?)
+              ?.whereType<String>()
+              .where((value) => value.trim().isNotEmpty)
+              .toList(growable: false) ??
+          const [],
+      commonMistakes: const [],
+      imagePath: imageUrl,
+      videoPath: null,
+      maleImagePath: null,
+      femaleImagePath: null,
+      maleVideoPath: null,
+      femaleVideoPath: null,
+      maleImageReviewed: false,
+      femaleImageReviewed: false,
+      mediaSource: 'yuhonas/free-exercise-db',
+      mediaLicense: 'Unlicense / public-domain dedication',
+      mediaReviewNotes:
+          '[reference-generic] Licensed source image; technique not independently reviewed by LeanIt.',
+    );
+  }
+
   /// Returns only media that has been explicitly reviewed for production use.
   /// A path existing in Storage is not enough by itself: technique and media
   /// rights must both be approved before LeanIt shows it as final media.
@@ -129,6 +204,11 @@ class OnlineExercise {
     return _hasText(imagePath) && notes.contains('[approved-generic]');
   }
 
+  bool get hasReferenceGenericImage {
+    final notes = mediaReviewNotes ?? '';
+    return _hasText(imagePath) && notes.contains('[reference-generic]');
+  }
+
   bool get hasReviewedMaleImage =>
       maleImageReviewed && _hasText(maleImagePath);
 
@@ -138,16 +218,58 @@ class OnlineExercise {
   bool get hasCompleteReviewedImagePair =>
       hasReviewedMaleImage && hasReviewedFemaleImage;
 
+  static String _slug(String value) {
+    var output = value.toLowerCase().replaceAll('&', 'and');
+    output = output.replaceAll(RegExp(r'[^a-z0-9]+'), '_');
+    return output.replaceAll(RegExp(r'^_+|_+$'), '');
+  }
+
+  static String _titleCase(String value) {
+    return value
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty)
+        .map((part) => '${part[0].toUpperCase()}${part.substring(1).toLowerCase()}')
+        .join(' ');
+  }
+
+  static List<String> _locationsFor(String equipment, String? category) {
+    final value = equipment.toLowerCase();
+    final categoryValue = category?.toLowerCase() ?? '';
+
+    if (categoryValue == 'strongman') {
+      return const ['Gym', 'Outside'];
+    }
+    if (value == 'bodyweight') {
+      return const ['Home', 'Gym', 'Outside'];
+    }
+    if (value.contains('resistance band') ||
+        value.contains('foam roll') ||
+        value.contains('exercise ball') ||
+        value.contains('medicine ball') ||
+        value.contains('kettlebell') ||
+        value.contains('dumbbell')) {
+      return const ['Home', 'Gym'];
+    }
+    return const ['Gym'];
+  }
+
   static bool _hasText(String? value) => value != null && value.trim().isNotEmpty;
 }
 
 class ExerciseRepository {
   final SupabaseClient client;
   final String mediaBucket;
+  final int freeCatalogueLimit;
+
+  static const String _freeCatalogueUrl =
+      'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/dist/exercises.json';
+  static Future<List<OnlineExercise>>? _freeCatalogueCache;
 
   const ExerciseRepository(
     this.client, {
     this.mediaBucket = 'exercise-media',
+    this.freeCatalogueLimit = 300,
   });
 
   String idFromName(String name) {
@@ -159,62 +281,106 @@ class ExerciseRepository {
 
   Future<OnlineExercise?> fetchByName(String name) async {
     final exerciseId = idFromName(name);
-    return fetchById(exerciseId);
+    final byId = await fetchById(exerciseId);
+    if (byId != null) return byId;
+
+    final lower = name.trim().toLowerCase();
+    final catalogue = await _freeCatalogueSafely();
+    for (final exercise in catalogue) {
+      if (exercise.name.toLowerCase() == lower) return exercise;
+    }
+    return null;
   }
 
   Future<OnlineExercise?> fetchById(String exerciseId) async {
-    final data = await client
-        .from('exercises')
-        .select()
-        .eq('id', exerciseId)
-        .eq('is_active', true)
-        .maybeSingle();
+    try {
+      final data = await client
+          .from('exercises')
+          .select()
+          .eq('id', exerciseId)
+          .eq('is_active', true)
+          .maybeSingle();
 
-    if (data == null) return null;
-    return OnlineExercise.fromMap(data);
+      if (data != null) return OnlineExercise.fromMap(data);
+    } catch (_) {
+      // Fall through to the free catalogue. This keeps the exercise library
+      // useful when Supabase is temporarily unavailable or not connected yet.
+    }
+
+    final catalogue = await _freeCatalogueSafely();
+    for (final exercise in catalogue) {
+      if (exercise.id == exerciseId) return exercise;
+    }
+    return null;
   }
 
   Future<List<OnlineExercise>> fetchAll() async {
-    final data = await client
-        .from('exercises')
-        .select()
-        .eq('is_active', true)
-        .order('name');
+    final merged = <String, OnlineExercise>{};
 
-    return (data as List)
-        .whereType<Map<String, dynamic>>()
-        .map(OnlineExercise.fromMap)
-        .toList(growable: false);
+    final freeCatalogue = await _freeCatalogueSafely();
+    for (final exercise in freeCatalogue.take(freeCatalogueLimit)) {
+      merged[exercise.id] = exercise;
+    }
+
+    try {
+      final data = await client
+          .from('exercises')
+          .select()
+          .eq('is_active', true)
+          .order('name');
+
+      for (final row in (data as List).whereType<Map<String, dynamic>>()) {
+        final exercise = OnlineExercise.fromMap(row);
+        // LeanIt/Supabase records win over the public fallback record.
+        merged[exercise.id] = exercise;
+      }
+    } catch (_) {
+      // Free catalogue remains available as the fallback.
+    }
+
+    final result = merged.values.toList(growable: false)
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    return result;
   }
 
   Future<List<OnlineExercise>> searchByName(String query) async {
-    final trimmed = query.trim();
-    if (trimmed.isEmpty) return fetchAll();
+    final trimmed = query.trim().toLowerCase();
+    final all = await fetchAll();
+    if (trimmed.isEmpty) return all;
 
-    final data = await client
-        .from('exercises')
-        .select()
-        .eq('is_active', true)
-        .ilike('name', '%$trimmed%')
-        .order('name');
-
-    return (data as List)
-        .whereType<Map<String, dynamic>>()
-        .map(OnlineExercise.fromMap)
-        .toList(growable: false);
+    return all.where((exercise) {
+      return exercise.name.toLowerCase().contains(trimmed) ||
+          (exercise.category ?? '').toLowerCase().contains(trimmed) ||
+          exercise.primaryMuscles
+              .any((muscle) => muscle.toLowerCase().contains(trimmed)) ||
+          exercise.equipment
+              .any((item) => item.toLowerCase().contains(trimmed));
+    }).toList(growable: false);
   }
 
   Future<Map<String, int>> fetchMediaCoverage() async {
-    final data = await client.from('exercise_media_coverage').select().single();
-    int number(String key) => (data[key] as num?)?.toInt() ?? 0;
-    return {
-      'active': number('active_exercises'),
-      'male': number('male_images'),
-      'female': number('female_images'),
-      'maleReviewed': number('male_reviewed'),
-      'femaleReviewed': number('female_reviewed'),
-      'fullyPublishable': number('fully_publishable_exercises'),
-    };
+    try {
+      final data = await client.from('exercise_media_coverage').select().single();
+      int number(String key) => (data[key] as num?)?.toInt() ?? 0;
+      return {
+        'active': number('active_exercises'),
+        'male': number('male_images'),
+        'female': number('female_images'),
+        'maleReviewed': number('male_reviewed'),
+        'femaleReviewed': number('female_reviewed'),
+        'fullyPublishable': number('fully_publishable_exercises'),
+      };
+    } catch (_) {
+      final all = await fetchAll();
+      return {
+        'active': all.length,
+        'male': all.where((e) => e.maleImagePath != null).length,
+        'female': all.where((e) => e.femaleImagePath != null).length,
+        'maleReviewed': all.where((e) => e.hasReviewedMaleImage).length,
+        'femaleReviewed': all.where((e) => e.hasReviewedFemaleImage).length,
+        'fullyPublishable': all.where((e) => e.hasCompleteReviewedImagePair).length,
+      };
+    }
   }
 
   String publicImageUrl(String imagePath) {
@@ -225,7 +391,59 @@ class ExerciseRepository {
     return client.storage.from(mediaBucket).getPublicUrl(value);
   }
 
-  Future<Uint8List> downloadImage(String imagePath) {
-    return client.storage.from(mediaBucket).download(imagePath.trim());
+  Future<Uint8List> downloadImage(String imagePath) async {
+    final value = imagePath.trim();
+    if (value.startsWith('https://') || value.startsWith('http://')) {
+      final response = await http.get(Uri.parse(value));
+      if (response.statusCode != 200) {
+        throw StateError('Could not download exercise image (${response.statusCode}).');
+      }
+      return response.bodyBytes;
+    }
+    return client.storage.from(mediaBucket).download(value);
+  }
+
+  Future<List<OnlineExercise>> _freeCatalogueSafely() async {
+    try {
+      return await _freeCatalogue();
+    } catch (_) {
+      return const <OnlineExercise>[];
+    }
+  }
+
+  Future<List<OnlineExercise>> _freeCatalogue() {
+    return _freeCatalogueCache ??= _loadFreeCatalogue();
+  }
+
+  Future<List<OnlineExercise>> _loadFreeCatalogue() async {
+    final response = await http
+        .get(Uri.parse(_freeCatalogueUrl))
+        .timeout(const Duration(seconds: 20));
+
+    if (response.statusCode != 200) {
+      throw StateError(
+        'Could not load free exercise catalogue (${response.statusCode}).',
+      );
+    }
+
+    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    if (decoded is! List) {
+      throw const FormatException('Free exercise catalogue is not a JSON list.');
+    }
+
+    final exercises = <OnlineExercise>[];
+    for (final item in decoded) {
+      if (item is! Map) continue;
+      exercises.add(
+        OnlineExercise.fromFreeExerciseDb(
+          Map<String, dynamic>.from(item),
+        ),
+      );
+    }
+
+    exercises.sort(
+      (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+    );
+    return exercises;
   }
 }

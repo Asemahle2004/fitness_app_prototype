@@ -89,7 +89,7 @@ class _ExerciseMediaState extends State<ExerciseMedia> {
           if (!widget.compact) ...[
             const SizedBox(height: 6),
             const Text(
-              'Reviewed LeanEat photo demonstration is being prepared.',
+              'Reviewed LeanIt photo demonstration is being prepared.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 12,
@@ -140,7 +140,7 @@ class _ExerciseMediaState extends State<ExerciseMedia> {
     );
   }
 
-  Widget _reviewedPhoto(String imagePath) {
+  Widget _storedOrRemotePhoto(String imagePath) {
     if (_isRemoteUrl(imagePath)) {
       return _remotePhoto(imagePath);
     }
@@ -164,6 +164,44 @@ class _ExerciseMediaState extends State<ExerciseMedia> {
     );
   }
 
+  Widget _referencePhoto(String imagePath) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        _storedOrRemotePhoto(imagePath),
+        Positioned(
+          left: widget.compact ? 4 : 10,
+          right: widget.compact ? 4 : 10,
+          bottom: widget.compact ? 4 : 10,
+          child: Container(
+            padding: EdgeInsets.symmetric(
+              horizontal: widget.compact ? 5 : 9,
+              vertical: widget.compact ? 3 : 6,
+            ),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.72),
+              borderRadius: BorderRadius.circular(widget.compact ? 6 : 10),
+            ),
+            child: Text(
+              widget.compact
+                  ? 'REFERENCE'
+                  : 'REFERENCE IMAGE • TECHNIQUE REVIEW PENDING',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: widget.compact ? 8 : 10,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.3,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<Object?>>(
@@ -176,10 +214,20 @@ class _ExerciseMediaState extends State<ExerciseMedia> {
         final profile = values != null && values.length > 1
             ? values[1] as LeanEatProfile?
             : null;
-        final imagePath = online?.reviewedImageForSex(profile?.preferredVisualSex);
-        if (imagePath != null && imagePath.isNotEmpty) {
-          return _reviewedPhoto(imagePath);
+
+        final reviewedPath =
+            online?.reviewedImageForSex(profile?.preferredVisualSex);
+        if (reviewedPath != null && reviewedPath.isNotEmpty) {
+          return _storedOrRemotePhoto(reviewedPath);
         }
+
+        final referencePath = online?.hasReferenceGenericImage == true
+            ? online?.imagePath
+            : null;
+        if (referencePath != null && referencePath.isNotEmpty) {
+          return _referencePhoto(referencePath);
+        }
+
         return _fallback();
       },
     );
