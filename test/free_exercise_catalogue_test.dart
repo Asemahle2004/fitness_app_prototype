@@ -51,4 +51,31 @@ void main() {
     expect(exercise.equipment, ['Bodyweight']);
     expect(exercise.locations, ['Home', 'Gym', 'Outside']);
   });
+
+  test('free exercises survive offline cache serialization', () {
+    final original = OnlineExercise.fromFreeExerciseDb({
+      'name': 'Goblet Squat',
+      'force': 'push',
+      'level': 'beginner',
+      'mechanic': 'compound',
+      'equipment': 'dumbbell',
+      'primaryMuscles': ['quadriceps'],
+      'secondaryMuscles': ['glutes'],
+      'instructions': ['Hold the dumbbell close to your chest.'],
+      'category': 'strength',
+      'images': ['Goblet_Squat/0.jpg'],
+    });
+
+    final restored = OnlineExercise.fromMap(original.toCacheMap());
+
+    expect(restored.id, original.id);
+    expect(restored.name, original.name);
+    expect(restored.primaryMuscles, original.primaryMuscles);
+    expect(restored.equipment, original.equipment);
+    expect(restored.instructions, original.instructions);
+    expect(restored.imagePath, original.imagePath);
+    expect(restored.mediaSource, original.mediaSource);
+    expect(restored.mediaLicense, original.mediaLicense);
+    expect(restored.hasReferenceGenericImage, isTrue);
+  });
 }
