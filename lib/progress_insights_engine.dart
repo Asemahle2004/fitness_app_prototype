@@ -59,7 +59,10 @@ class ProgressInsights {
 
   int get consistencyPercent {
     if (trackedWeeks == 0) return 0;
-    return ((activeWeeks / trackedWeeks) * 100).round().clamp(0, 100);
+    return ((activeWeeks / trackedWeeks) * 100)
+        .round()
+        .clamp(0, 100)
+        .toInt();
   }
 
   bool get hasTrainingHistory =>
@@ -91,7 +94,7 @@ class ProgressInsightsEngine {
     DateTime? now,
     int weeks = defaultWeeks,
   }) {
-    final safeWeeks = weeks.clamp(2, 16);
+    final safeWeeks = weeks.clamp(2, 16).toInt();
     final reference = now ?? DateTime.now();
     final currentWeekStart = startOfWeek(reference);
     final oldestWeekStart = currentWeekStart.subtract(
