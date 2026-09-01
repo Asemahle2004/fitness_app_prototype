@@ -9,12 +9,16 @@ import 'custom_workouts_screen.dart';
 import 'exercise_library_screen.dart';
 import 'exercise_performance_store.dart';
 import 'lean_eat_theme.dart';
+import 'leanit_control_center_screen.dart';
+import 'leanit_home_dashboard.dart';
+import 'leanit_preferences.dart';
 import 'progress_screen.dart';
 import 'readiness_screen.dart';
 import 'strength_adaptation_cache.dart';
-import 'today_dashboard.dart';
-import 'training_settings_screen.dart';
+import 'sync_queue.dart';
+import 'training_settings.dart';
 import 'training_store.dart';
+import 'unit_display.dart';
 
 class LeanEatMemberShell extends StatefulWidget {
   final Widget programmeHome;
@@ -28,28 +32,72 @@ class LeanEatMemberShell extends StatefulWidget {
   State<LeanEatMemberShell> createState() => _LeanEatMemberShellState();
 }
 
-class _LeanEatMemberShellState extends State<LeanEatMemberShell> {
+class _LeanEatMemberShellState extends State<LeanEatMemberShell>
+    with WidgetsBindingObserver {
   int _index = 0;
   int _homeRevision = 0;
   int _adaptationRefreshToken = 0;
   late List<Widget> _pages;
+  LeanItPreferences _preferences = const LeanItPreferences();
+
+  String get _scope =>
+      Supabase.instance.client.auth.currentUser?.id ?? 'guest';
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _pages = _buildPages();
     TrainingStore.revision.addListener(_onTrainingRevision);
+    unawaited(_refreshRuntimePreferences());
     unawaited(_refreshStrengthAdaptation());
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     TrainingStore.revision.removeListener(_onTrainingRevision);
     super.dispose();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_refreshRuntimePreferences());
+      unawaited(_refreshStrengthAdaptation());
+      unawaited(_flushPendingSync());
+    }
+  }
+
   void _onTrainingRevision() {
     unawaited(_refreshStrengthAdaptation());
+    if (_preferences.automaticSync) unawaited(_flushPendingSync());
+  }
+
+  Future<void> _refreshRuntimePreferences() async {
+    try {
+      final training = await TrainingSettingsStore(userScope: _scope).load();
+      final preferences = await LeanItPreferencesStore(userScope: _scope).load();
+      UnitDisplay.setSystem(training.unitSystem);
+      LeanItPreferencesCache.set(preferences);
+      if (!mounted) return;
+      setState(() => _preferences = preferences);
+      if (preferences.automaticSync) unawaited(_flushPendingSync());
+    } catch (_) {
+      // Defaults remain usable if preferences cannot be read.
+    }
+  }
+
+  Future<void> _flushPendingSync() async {
+    if (!_preferences.automaticSync) return;
+    try {
+      await SyncCoordinator(
+        client: Supabase.instance.client,
+        userScope: _scope,
+      ).flush();
+    } catch (_) {
+      // Sync remains queued and will retry on the next foreground/session event.
+    }
   }
 
   Future<void> _refreshStrengthAdaptation() async {
@@ -74,13 +122,13 @@ class _LeanEatMemberShellState extends State<LeanEatMemberShell> {
         ),
       );
     } catch (_) {
-      // The existing workout flow remains usable when analytics cannot refresh.
+      // The workout flow remains usable when analytics cannot refresh.
     }
   }
 
   List<Widget> _buildPages() => [
-        LeanEatTodayDashboard(
-          key: ValueKey('today-$_homeRevision'),
+        LeanItHomeDashboard(
+          key: ValueKey('home-$_homeRevision'),
           fallbackProgrammeHome: widget.programmeHome,
         ),
         ExerciseLibraryScreen(client: Supabase.instance.client),
@@ -92,23 +140,33 @@ class _LeanEatMemberShellState extends State<LeanEatMemberShell> {
 
   void _selectDestination(int value) {
     unawaited(_refreshStrengthAdaptation());
+    unawaited(_refreshRuntimePreferences());
     setState(() {
       _index = value;
       if (value == 0) {
         _homeRevision += 1;
-        _pages[0] = LeanEatTodayDashboard(
-          key: ValueKey('today-$_homeRevision'),
+        _pages[0] = LeanItHomeDashboard(
+          key: ValueKey('home-$_homeRevision'),
           fallbackProgrammeHome: widget.programmeHome,
         );
       }
     });
   }
 
-  void _openTrainingSettings() {
-    Navigator.push(
+  Future<void> _openControlCenter() async {
+    await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const TrainingSettingsScreen()),
+      MaterialPageRoute(builder: (_) => const LeanItControlCenterScreen()),
     );
+    if (!mounted) return;
+    await _refreshRuntimePreferences();
+    setState(() {
+      _homeRevision += 1;
+      _pages[0] = LeanItHomeDashboard(
+        key: ValueKey('home-$_homeRevision'),
+        fallbackProgrammeHome: widget.programmeHome,
+      );
+    });
   }
 
   static const _destinations = <NavigationDestination>[
@@ -146,24 +204,75 @@ class _LeanEatMemberShellState extends State<LeanEatMemberShell> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: LeanEatColors.background,
+    final media = MediaQuery.of(context);
+    final scale = _preferences.largeText ? 1.15 : 1.0;
+    final minimumInteractive = _preferences.largerTapTargets ? 54.0 : 48.0;
+
+    final content = Scaffold(
+      backgroundColor: _preferences.highContrast
+          ? Colors.white
+          : LeanEatColors.background,
       body: IndexedStack(
         index: _index,
         children: _pages,
       ),
       floatingActionButton: _index == 5
           ? FloatingActionButton.extended(
-              onPressed: _openTrainingSettings,
+              onPressed: _openControlCenter,
               icon: const Icon(Icons.tune_rounded),
               label: const Text('SETTINGS & TOOLS'),
             )
           : null,
       bottomNavigationBar: NavigationBar(
+        height: _preferences.largerTapTargets ? 84 : 80,
         selectedIndex: _index,
         onDestinationSelected: _selectDestination,
         destinations: _destinations,
       ),
     );
+
+    return MediaQuery(
+      data: media.copyWith(
+        textScaler: TextScaler.linear(scale),
+      ),
+      child: Theme(
+        data: Theme.of(context).copyWith(
+          visualDensity: _preferences.largerTapTargets
+              ? VisualDensity.comfortable
+              : VisualDensity.standard,
+          materialTapTargetSize: MaterialTapTargetSize.padded,
+          buttonTheme: Theme.of(context).buttonTheme.copyWith(
+                height: minimumInteractive,
+              ),
+          pageTransitionsTheme: _preferences.reducedMotion
+              ? const PageTransitionsTheme(
+                  builders: <TargetPlatform, PageTransitionsBuilder>{
+                    TargetPlatform.android: _NoMotionTransitionsBuilder(),
+                    TargetPlatform.iOS: _NoMotionTransitionsBuilder(),
+                    TargetPlatform.linux: _NoMotionTransitionsBuilder(),
+                    TargetPlatform.macOS: _NoMotionTransitionsBuilder(),
+                    TargetPlatform.windows: _NoMotionTransitionsBuilder(),
+                  },
+                )
+              : Theme.of(context).pageTransitionsTheme,
+        ),
+        child: content,
+      ),
+    );
+  }
+}
+
+class _NoMotionTransitionsBuilder extends PageTransitionsBuilder {
+  const _NoMotionTransitionsBuilder();
+
+  @override
+  Widget buildTransitions<T>(
+    PageRoute<T> route,
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    return child;
   }
 }
