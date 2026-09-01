@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'drop_set_engine.dart';
+import 'equipment_availability_store.dart';
+import 'equipment_flexibility_engine.dart';
 import 'exercise_media.dart';
 import 'exercise_performance_store.dart';
 import 'exercise_swap_service.dart';
@@ -69,6 +71,9 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
   bool _coolDownCompleted = false;
   bool _openingPreparation = false;
   bool _openingCoolDown = false;
+  bool _equipmentPromptOpen = false;
+  bool _equipmentAdapting = false;
+  bool _finishedWithoutExercises = false;
   int? _nextIndexAfterRest;
   int _activeRestSeconds = 0;
   int _activeDropNumber = 0;
@@ -78,6 +83,9 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
   late List<int> _completedSetsByExercise;
   late final ExercisePerformanceStore _performanceStore;
   late final ExerciseSwapService _swapService;
+  late final EquipmentAvailabilityStore _equipmentStore;
+  late final String _trainingEnvironment;
+  final Map<String, Set<String>> _deferredEquipmentByExercise = {};
 
   final TextEditingController _weightController = TextEditingController();
   ExerciseSetPerformance? _previousPerformance;
@@ -87,8 +95,9 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
   String? _lastSavedSummary;
 
   bool get isComplete =>
-      _sessionExercises.isNotEmpty &&
-      completedExercises >= _sessionExercises.length;
+      _finishedWithoutExercises ||
+      (_sessionExercises.isNotEmpty &&
+          completedExercises >= _sessionExercises.length);
 
   ExercisePrescription get currentExercise => _sessionExercises[currentIndex];
 
@@ -119,10 +128,15 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
     final client = Supabase.instance.client;
     _performanceStore = ExercisePerformanceStore(client);
     _swapService = ExerciseSwapService(client);
+    _trainingEnvironment = _environmentForWorkout();
+    _equipmentStore = EquipmentAvailabilityStore(
+      userScope: client.auth.currentUser?.id ?? 'guest',
+    );
 
     if (_sessionExercises.isNotEmpty) {
       _resetCurrentExerciseState();
       unawaited(_loadPreviousPerformance(currentExercise.name));
+      unawaited(_applyRememberedEquipmentAvailability());
     }
 
     _workoutTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -200,7 +214,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
   }
 
   void _startSet() {
-    if (_editingWorkout || _swapping) return;
+    if (_editingWorkout || _swapping || _equipmentAdapting) return;
     if (!_preparationCompleted &&
         completedSets == 0 &&
         currentIndex == 0 &&
@@ -586,6 +600,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
       );
     });
     unawaited(_loadPreviousPerformance(currentExercise.name));
+    _scheduleDeferredEquipmentCheck();
   }
 
   int _supersetRestSeconds(int index) {
@@ -615,6 +630,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
       _resetCurrentExerciseState();
     });
     unawaited(_loadPreviousPerformance(currentExercise.name));
+    _scheduleDeferredEquipmentCheck();
   }
 
   Future<void> _saveHistory() async {
@@ -693,7 +709,472 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
     );
   }
 
-  Future<void> _openSwapFlow() async {
+  String _environmentForWorkout() {
+    final title = widget.workout.title.toLowerCase();
+    if (title.contains('home')) return 'Home';
+    if (title.contains('outside')) return 'Outside';
+    return 'Gym';
+  }
+
+  Future<void> _applyRememberedEquipmentAvailability() async {
+    if (_sessionExercises.isEmpty || completedSets > 0 || !mounted) return;
+    final unavailable =
+        await _equipmentStore.unavailableFor(_trainingEnvironment);
+    if (!mounted || unavailable.isEmpty || completedSets > 0) return;
+
+    setState(() => _equipmentAdapting = true);
+    var changed = 0;
+    for (var index = 0; index < _sessionExercises.length; index += 1) {
+      final exercise = _sessionExercises[index];
+      if (exercise.supersetId != null ||
+!EquipmentFlexibilityEngine.exerciseUsesAny(
+  exercise,
+  unavailable,
+)) {
+        continue;
+      }
+      try {
+        final result = await _swapService.suggestions(
+current: exercise,
+sessionExercises: _sessionExercises,
+reason: ExerciseSwapReason.equipmentUnavailable,
+unavailableEquipment: unavailable,
+        );
+        if (result.suggestions.isEmpty) continue;
+        var replacement = result.suggestions.first.exercise.copyWith(
+supersetId: exercise.supersetId,
+        );
+        if (exercise.dropSetCount > 0 &&
+  DropSetEngine.canConfigure(replacement)) {
+replacement = replacement.copyWith(
+  dropSetCount: exercise.dropSetCount,
+  dropSetReductionPercent: exercise.dropSetReductionPercent,
+);
+        }
+        _sessionExercises[index] = replacement;
+        changed += 1;
+      } catch (_) {
+        // A remembered-equipment adaptation must never block the workout.
+      }
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _equipmentAdapting = false;
+      if (_sessionExercises.isNotEmpty) {
+        _resetCurrentExerciseState(
+setNumber: _completedSetsByExercise[currentIndex] + 1,
+        );
+      }
+    });
+    if (_sessionExercises.isNotEmpty) {
+      unawaited(_loadPreviousPerformance(currentExercise.name));
+    }
+    if (changed > 0 && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+content: Text(
+  'LeanIt adjusted $changed exercise${changed == 1 ? '' : 's'} for equipment remembered at $_trainingEnvironment.',
+),
+        ),
+      );
+    }
+  }
+
+  Future<EquipmentIssueType?> _selectEquipmentIssueType() {
+    return showModalBottomSheet<EquipmentIssueType>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+child: Column(
+  mainAxisSize: MainAxisSize.min,
+  crossAxisAlignment: CrossAxisAlignment.start,
+  children: [
+    const Text(
+      'What is happening with the equipment?',
+      style: TextStyle(
+        fontSize: 22,
+        fontWeight: FontWeight.bold,
+        color: Color(0xFF102A43),
+      ),
+    ),
+    const SizedBox(height: 8),
+    const Text(
+      'LeanIt treats a busy station differently from equipment that does not exist here.',
+      style: TextStyle(color: Color(0xFF627D98)),
+    ),
+    const SizedBox(height: 12),
+    ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: const Icon(Icons.hourglass_top_rounded),
+      title: const Text('Temporarily occupied'),
+      subtitle: const Text('Someone is using it right now.'),
+      onTap: () => Navigator.pop(
+        sheetContext,
+        EquipmentIssueType.temporarilyOccupied,
+      ),
+    ),
+    ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: const Icon(Icons.location_off_outlined),
+      title: Text(
+        _trainingEnvironment == 'Gym'
+            ? 'This gym does not have it'
+            : 'Not available at this location',
+      ),
+      subtitle: const Text('Remember this for future sessions here.'),
+      onTap: () => Navigator.pop(
+        sheetContext,
+        EquipmentIssueType.unavailableAtLocation,
+      ),
+    ),
+    ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: const Icon(Icons.today_outlined),
+      title: const Text('Not available today'),
+      subtitle: const Text('Change only today’s workout.'),
+      onTap: () => Navigator.pop(
+        sheetContext,
+        EquipmentIssueType.unavailableToday,
+      ),
+    ),
+  ],
+),
+        ),
+      ),
+    );
+  }
+
+  Future<Set<String>?> _selectUnavailableEquipment() async {
+    final components = EquipmentFlexibilityEngine.components(
+      '${currentExercise.equipment} + ${currentExercise.name}',
+    );
+    if (components.isEmpty) return const <String>{};
+    if (components.length == 1) return {components.first};
+
+    return showModalBottomSheet<Set<String>>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+child: Column(
+  mainAxisSize: MainAxisSize.min,
+  crossAxisAlignment: CrossAxisAlignment.start,
+  children: [
+    const Text(
+      'Which part is unavailable?',
+      style: TextStyle(
+        fontSize: 22,
+        fontWeight: FontWeight.bold,
+        color: Color(0xFF102A43),
+      ),
+    ),
+    const SizedBox(height: 8),
+    const Text(
+      'Choosing the exact item helps LeanIt keep equipment that is still usable.',
+      style: TextStyle(color: Color(0xFF627D98)),
+    ),
+    const SizedBox(height: 12),
+    ...components.map(
+      (item) => ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: const Icon(Icons.fitness_center_outlined),
+        title: Text(EquipmentFlexibilityEngine.labelForToken(item)),
+        onTap: () => Navigator.pop(sheetContext, {item}),
+      ),
+    ),
+    ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: const Icon(Icons.block_outlined),
+      title: const Text('The whole setup'),
+      onTap: () => Navigator.pop(sheetContext, components),
+    ),
+  ],
+),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openEquipmentFlow() async {
+    if (_swapping ||
+        _editingWorkout ||
+        _equipmentAdapting ||
+        phase != LivePhase.ready ||
+        currentSet != 1 ||
+        inDropSet) {
+      return;
+    }
+
+    final issue = await _selectEquipmentIssueType();
+    if (issue == null || !mounted) return;
+    final unavailable = await _selectUnavailableEquipment();
+    if (unavailable == null || !mounted) return;
+
+    if (issue == EquipmentIssueType.unavailableAtLocation) {
+      await _equipmentStore.markPermanent(_trainingEnvironment, unavailable);
+    } else if (issue == EquipmentIssueType.unavailableToday) {
+      await _equipmentStore.markToday(_trainingEnvironment, unavailable);
+    }
+    if (!mounted) return;
+    await _openEquipmentActionMenu(issue, unavailable);
+  }
+
+  Future<void> _openEquipmentActionMenu(
+    EquipmentIssueType issue,
+    Set<String> unavailable,
+  ) async {
+    if (!mounted || _sessionExercises.isEmpty) return;
+    final recommendation = EquipmentFlexibilityEngine.recommend(
+      issue: issue,
+      exercises: _sessionExercises,
+      currentIndex: currentIndex,
+      unavailable: unavailable,
+    );
+    final canMove = issue == EquipmentIssueType.temporarilyOccupied &&
+        EquipmentFlexibilityEngine.canMoveLater(
+exercises: _sessionExercises,
+currentIndex: currentIndex,
+unavailable: unavailable,
+        );
+
+    final action = await showModalBottomSheet<EquipmentSessionAction>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+child: Column(
+  mainAxisSize: MainAxisSize.min,
+  crossAxisAlignment: CrossAxisAlignment.start,
+  children: [
+    const Text(
+      'Keep the workout moving',
+      style: TextStyle(
+        fontSize: 22,
+        fontWeight: FontWeight.bold,
+        color: Color(0xFF102A43),
+      ),
+    ),
+    const SizedBox(height: 8),
+    Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF3F8DC),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Text(
+        recommendation == EquipmentSessionAction.moveLater
+            ? 'LeanIt recommends doing another exercise first, then checking this equipment again.'
+            : 'LeanIt recommends a suitable replacement that keeps the main training purpose.',
+        style: const TextStyle(
+          fontWeight: FontWeight.w700,
+          color: Color(0xFF55721B),
+        ),
+      ),
+    ),
+    const SizedBox(height: 10),
+    ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: const Icon(Icons.swap_horiz_rounded),
+      title: const Text('Give me an alternative'),
+      trailing: recommendation == EquipmentSessionAction.alternative
+          ? const Chip(label: Text('RECOMMENDED'))
+          : null,
+      onTap: () => Navigator.pop(
+        sheetContext,
+        EquipmentSessionAction.alternative,
+      ),
+    ),
+    if (canMove)
+      ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: const Icon(Icons.redo_rounded),
+        title: const Text('Do something else first'),
+        trailing: recommendation == EquipmentSessionAction.moveLater
+            ? const Chip(label: Text('RECOMMENDED'))
+            : null,
+        onTap: () => Navigator.pop(
+          sheetContext,
+          EquipmentSessionAction.moveLater,
+        ),
+      ),
+    if (currentExercise.supersetId == null)
+      ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: const Icon(Icons.skip_next_rounded),
+        title: const Text('Skip for today'),
+        onTap: () => Navigator.pop(
+          sheetContext,
+          EquipmentSessionAction.skipToday,
+        ),
+      ),
+  ],
+),
+        ),
+      ),
+    );
+
+    if (action == null || !mounted) return;
+    switch (action) {
+      case EquipmentSessionAction.alternative:
+        await _openSwapFlow(
+presetReason: ExerciseSwapReason.equipmentUnavailable,
+unavailableEquipment: unavailable,
+        );
+        break;
+      case EquipmentSessionAction.moveLater:
+        _moveCurrentExerciseLater(unavailable);
+        break;
+      case EquipmentSessionAction.skipToday:
+        await _skipCurrentExerciseToday();
+        break;
+    }
+  }
+
+  void _moveCurrentExerciseLater(Set<String> unavailable) {
+    if (!EquipmentFlexibilityEngine.canMoveLater(
+      exercises: _sessionExercises,
+      currentIndex: currentIndex,
+      unavailable: unavailable,
+    )) {
+      unawaited(_showSwapMessage('There is no suitable later exercise to do first.'));
+      return;
+    }
+
+    final fromIndex = currentIndex;
+    final targetIndex = EquipmentFlexibilityEngine.moveLaterTargetIndex(
+      exercises: _sessionExercises,
+      currentIndex: currentIndex,
+    );
+    final moved = _sessionExercises.removeAt(fromIndex);
+    final movedSets = _completedSetsByExercise.removeAt(fromIndex);
+    final insertionIndex = targetIndex.clamp(0, _sessionExercises.length);
+    _sessionExercises.insert(insertionIndex, moved);
+    _completedSetsByExercise.insert(insertionIndex, movedSets);
+    _deferredEquipmentByExercise[moved.name] = {...unavailable};
+
+    setState(() {
+      currentIndex = fromIndex.clamp(0, _sessionExercises.length - 1);
+      _resetCurrentExerciseState(
+        setNumber: _completedSetsByExercise[currentIndex] + 1,
+      );
+    });
+    unawaited(_loadPreviousPerformance(currentExercise.name));
+    _scheduleDeferredEquipmentCheck();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+'${moved.name} moved to Exercise ${insertionIndex + 1}. Next: ${currentExercise.name}.',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _skipCurrentExerciseToday() async {
+    if (currentExercise.supersetId != null) {
+      await _showSwapMessage(
+        'This exercise is part of a superset. Replace it instead so LeanIt does not break the paired structure.',
+      );
+      return;
+    }
+    final skipped = currentExercise.name;
+    _deferredEquipmentByExercise.remove(skipped);
+
+    setState(() {
+      _sessionExercises.removeAt(currentIndex);
+      _completedSetsByExercise.removeAt(currentIndex);
+      if (_sessionExercises.isEmpty ||
+completedExercises >= _sessionExercises.length) {
+        _finishedWithoutExercises = true;
+        phase = LivePhase.ready;
+      } else {
+        currentIndex = currentIndex.clamp(0, _sessionExercises.length - 1);
+        _resetCurrentExerciseState(
+setNumber: _completedSetsByExercise[currentIndex] + 1,
+        );
+      }
+    });
+
+    if (isComplete) {
+      unawaited(_saveHistory());
+      unawaited(_openCoolDownFlow());
+    } else {
+      unawaited(_loadPreviousPerformance(currentExercise.name));
+      _scheduleDeferredEquipmentCheck();
+    }
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$skipped skipped for today.')),
+      );
+    }
+  }
+
+  void _scheduleDeferredEquipmentCheck() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_promptDeferredEquipmentCheck());
+    });
+  }
+
+  Future<void> _promptDeferredEquipmentCheck() async {
+    if (_equipmentPromptOpen ||
+        !mounted ||
+        isComplete ||
+        _sessionExercises.isEmpty ||
+        phase != LivePhase.ready ||
+        currentSet != 1) {
+      return;
+    }
+    final exerciseName = currentExercise.name;
+    final unavailable = _deferredEquipmentByExercise[exerciseName];
+    if (unavailable == null) return;
+
+    _equipmentPromptOpen = true;
+    final availableNow = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.fitness_center_outlined),
+        title: const Text('Is the equipment available now?'),
+        content: Text(
+'$exerciseName was moved later because the equipment was occupied.',
+        ),
+        actions: [
+TextButton(
+  onPressed: () => Navigator.pop(dialogContext, false),
+  child: const Text('STILL OCCUPIED'),
+),
+FilledButton(
+  onPressed: () => Navigator.pop(dialogContext, true),
+  child: const Text('YES'),
+),
+        ],
+      ),
+    );
+    _equipmentPromptOpen = false;
+    if (!mounted) return;
+
+    _deferredEquipmentByExercise.remove(exerciseName);
+    if (availableNow == true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$exerciseName is back in the session.')),
+      );
+      return;
+    }
+    await _openEquipmentActionMenu(
+      EquipmentIssueType.temporarilyOccupied,
+      unavailable,
+    );
+  }
+
+  Future<void> _openSwapFlow({
+    ExerciseSwapReason? presetReason,
+    Set<String> unavailableEquipment = const {},
+  }) async {
     if (_swapping ||
         _editingWorkout ||
         phase != LivePhase.ready ||
@@ -702,7 +1183,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
       return;
     }
 
-    final reason = await showModalBottomSheet<ExerciseSwapReason>(
+    final reason = presetReason ?? await showModalBottomSheet<ExerciseSwapReason>(
       context: context,
       showDragHandle: true,
       builder: (sheetContext) {
@@ -752,6 +1233,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
         current: currentExercise,
         sessionExercises: _sessionExercises,
         reason: reason,
+        unavailableEquipment: unavailableEquipment,
       );
     } catch (_) {
       result = const ExerciseSwapResult(
@@ -869,7 +1351,9 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('$previousName replaced with ${replacement.name}.'),
+        content: Text(
+          '$previousName → ${replacement.name}. ${selected.reasons.isEmpty ? 'LeanIt kept the main training purpose.' : selected.reasons.join(' • ')}',
+        ),
       ),
     );
   }
@@ -921,12 +1405,12 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
         elevation: 0,
       ),
       body: SafeArea(
-        child: exercises.isEmpty
-            ? const Center(
-                child: Text('No exercises are available for this workout.'),
-              )
-            : isComplete
-                ? _completeView(context)
+        child: isComplete
+            ? _completeView(context)
+            : exercises.isEmpty
+                ? const Center(
+                    child: Text('No exercises are available for this workout.'),
+                  )
                 : phase == LivePhase.rest
                     ? _restView()
                     : _activeView(currentExercise),
@@ -1098,11 +1582,27 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
               ),
             ),
           if (canEditStructure) const SizedBox(height: 10),
-          if (phase == LivePhase.ready && currentSet == 1 && !inDropSet)
+          if (phase == LivePhase.ready && currentSet == 1 && !inDropSet) ...[
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
-                onPressed: _swapping || _editingWorkout ? null : _openSwapFlow,
+                onPressed: _swapping || _editingWorkout || _equipmentAdapting
+                    ? null
+                    : _openEquipmentFlow,
+                icon: const Icon(Icons.fitness_center_outlined),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(50),
+                ),
+                label: const Text('EQUIPMENT IN USE / MISSING'),
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _swapping || _editingWorkout || _equipmentAdapting
+                    ? null
+                    : () => _openSwapFlow(),
                 icon: _swapping
                     ? const SizedBox(
                         width: 18,
@@ -1114,10 +1614,11 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
                   minimumSize: const Size.fromHeight(50),
                 ),
                 label: Text(
-                  _swapping ? 'FINDING ALTERNATIVES…' : 'REPLACE EXERCISE',
+                  _swapping ? 'FINDING ALTERNATIVES…' : 'OTHER REPLACEMENT',
                 ),
               ),
             ),
+          ],
           if (phase == LivePhase.ready && currentSet == 1 && !inDropSet)
             const SizedBox(height: 10),
           if (phase == LivePhase.active)
@@ -1135,7 +1636,9 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
-                onPressed: _swapping || _editingWorkout ? null : _startSet,
+                onPressed: _swapping || _editingWorkout || _equipmentAdapting
+                    ? null
+                    : _startSet,
                 icon: const Icon(Icons.play_arrow_rounded),
                 style: ElevatedButton.styleFrom(
                   minimumSize: const Size.fromHeight(58),
