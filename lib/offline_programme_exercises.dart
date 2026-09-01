@@ -1,6 +1,9 @@
 // GENERATED FROM WorkoutEngine. Keep this file small: names only.
 // Rich metadata/media from Supabase or the free catalogue replaces these
 // fallback entries whenever it is available.
+//
+// Dynamic running names are listed explicitly because several are selected by
+// location inside conditional expressions rather than a literal _e('...') call.
 
 const Set<String> offlineProgrammeExerciseNames = <String>{
   'Band Biceps Curl',
@@ -42,10 +45,12 @@ const Set<String> offlineProgrammeExerciseNames = <String>{
   'Hip Flexor Stretch',
   'Hip Thrust',
   'Incline Dumbbell Press',
+  'Interval Run',
   'Lat Pulldown',
   'Lateral Raise',
   'Leg Curl',
   'Leg Press',
+  'Long Easy Run',
   'Machine Chest Press',
   'Machine Shoulder Press',
   'March in Place',
@@ -58,9 +63,11 @@ const Set<String> offlineProgrammeExerciseNames = <String>{
   'Prone Y-T Raise',
   'Pull-Up',
   'Push-Up',
+  'Recovery Run',
   'Reverse Fly',
   'Reverse Lunge',
   'Romanian Deadlift',
+  'Run-Walk Intervals',
   'Seated Cable Row',
   'Seated Calf Raise',
   'Seated Dumbbell Shoulder Press',
@@ -73,6 +80,7 @@ const Set<String> offlineProgrammeExerciseNames = <String>{
   'T-Bar Row',
   'Tempo Run',
   'Thoracic Rotation',
+  'Treadmill Easy Run',
   'Treadmill Intervals',
   'Triceps Pushdown',
   'Warm-Up Walk',
