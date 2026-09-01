@@ -1,0 +1,35 @@
+name: Apply offline-first foundation patch
+
+on:
+  push:
+    branches:
+      - feature/offline-first-foundation
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[offline-first-applied]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/offline-first-foundation
+          fetch-depth: 0
+
+      - name: Apply offline-first patch
+        run: python tools/apply_offline_first_foundation_patch.py
+
+      - name: Commit integration
+        run: |
+          if git diff --quiet; then
+            echo "No offline-first changes required."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/offline_programme_exercises.dart lib/workout_engine.dart lib/exercise_repository.dart lib/exercise_media.dart lib/main.dart lib/account_screen.dart
+          git commit -m "Integrate offline catalogue and time-budget workouts [offline-first-applied]"
+          git push origin HEAD:feature/offline-first-foundation
