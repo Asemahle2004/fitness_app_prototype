@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'personal_record_celebration.dart';
+import 'personal_record_engine.dart';
 import 'run_tracking_store.dart';
 
 class RunLogFormScreen extends StatefulWidget {
@@ -63,7 +65,14 @@ class _RunLogFormScreenState extends State<RunLogFormScreen> {
       source: 'manual',
       notes: _notes.text.trim().isEmpty ? null : _notes.text.trim(),
     );
+    final previous = await RunTrackingStore.load();
+    final achievements = PersonalRecordEngine.newRunRecords(
+      current: record,
+      previous: previous,
+    );
     await RunTrackingStore.save(record);
+    if (!mounted) return;
+    await PersonalRecordCelebration.showDialogIfNeeded(context, achievements);
     if (!mounted) return;
     Navigator.pop(context, true);
   }
