@@ -1,3 +1,5 @@
+import 'programme_engine.dart';
+
 enum TrainingBlockPhase {
   foundation,
   build,
@@ -55,6 +57,10 @@ class PeriodizationPlan {
 
 class PeriodizationEngine {
   const PeriodizationEngine._();
+
+  static PeriodizationPlan? _current;
+  static PeriodizationPlan? get current => _current;
+  static void setCurrent(PeriodizationPlan? value) => _current = value;
 
   /// Uses a conservative four-week wave. Recovery/fatigue signals always
   /// override the calendar wave and create a deload instead of forcing load.
@@ -197,5 +203,74 @@ class PeriodizationEngine {
     final target = (minutes * plan.sessionDurationMultiplier).round();
     final rounded = ((target / 5).round() * 5).clamp(15, 90);
     return '$rounded min';
+  }
+
+  /// Applies the current block to the visible weekly schedule. A deload trims
+  /// one non-recovery session when the week has three or more sessions, then
+  /// reduces duration and intensity across the remaining week.
+  static List<PlannedSession> adaptSessions(
+    List<PlannedSession> sessions,
+    PeriodizationPlan? plan,
+  ) {
+    if (plan == null || sessions.isEmpty) {
+      return List<PlannedSession>.from(sessions);
+    }
+    var source = List<PlannedSession>.from(sessions);
+    if (plan.phase == TrainingBlockPhase.deload && source.length >= 3) {
+      final removeIndex = _highestStressIndex(source);
+      source.removeAt(removeIndex);
+    }
+
+    return source
+        .map(
+          (session) => PlannedSession(
+            day: session.day,
+            title: session.title,
+            location: session.location,
+            duration: adaptDuration(session.duration, plan),
+            focus: session.focus,
+            intensity: _adaptIntensity(session.intensity, plan),
+            personalisationNote:
+                '${plan.phase.label} block • ${plan.headline}. ${session.personalisationNote}'
+                    .trim(),
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  static int _highestStressIndex(List<PlannedSession> sessions) {
+    var bestIndex = sessions.length - 1;
+    var bestScore = -1;
+    for (var i = 0; i < sessions.length; i += 1) {
+      final session = sessions[i];
+      final text = '${session.title} ${session.focus} ${session.intensity}'.toLowerCase();
+      var score = 0;
+      if (text.contains('interval') || text.contains('speed')) score += 5;
+      if (text.contains('hard') || text.contains('high')) score += 4;
+      if (text.contains('lower') || text.contains('legs')) score += 2;
+      if (text.contains('recovery') || text.contains('mobility')) score -= 6;
+      if (score >= bestScore) {
+        bestScore = score;
+        bestIndex = i;
+      }
+    }
+    return bestIndex;
+  }
+
+  static String _adaptIntensity(String baseline, PeriodizationPlan plan) {
+    switch (plan.phase) {
+      case TrainingBlockPhase.deload:
+        return 'Easy–Moderate • deload';
+      case TrainingBlockPhase.consolidate:
+        return baseline.toLowerCase().contains('hard')
+            ? 'Moderate • consolidate'
+            : '$baseline • consolidate';
+      case TrainingBlockPhase.foundation:
+        return '$baseline • technique first';
+      case TrainingBlockPhase.build:
+        return '$baseline • controlled build';
+      case TrainingBlockPhase.intensify:
+        return '$baseline • measured progression';
+    }
   }
 }
