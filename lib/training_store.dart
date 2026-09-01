@@ -4,6 +4,9 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'app_health.dart';
+import 'sync_queue.dart';
+
 class WorkoutRecord {
   final String title;
   final DateTime completedAt;
@@ -11,6 +14,8 @@ class WorkoutRecord {
   final int completedSets;
   final List<String> exercises;
   final String? perceivedEffort;
+  final int? sessionRpe;
+  final String? feedbackNote;
 
   const WorkoutRecord({
     required this.title,
@@ -19,6 +24,8 @@ class WorkoutRecord {
     required this.completedSets,
     required this.exercises,
     this.perceivedEffort,
+    this.sessionRpe,
+    this.feedbackNote,
   });
 
   Map<String, dynamic> toJson() => {
@@ -28,9 +35,14 @@ class WorkoutRecord {
         'completedSets': completedSets,
         'exercises': exercises,
         if (perceivedEffort != null) 'perceivedEffort': perceivedEffort,
+        if (sessionRpe != null) 'sessionRpe': sessionRpe,
+        if (feedbackNote != null && feedbackNote!.isNotEmpty)
+          'feedbackNote': feedbackNote,
       };
 
   factory WorkoutRecord.fromJson(Map<String, dynamic> json) {
+    final rawRpe = json['sessionRpe'] ?? json['session_rpe'];
+    final parsedRpe = rawRpe is num ? rawRpe.toInt() : int.tryParse('$rawRpe');
     return WorkoutRecord(
       title: json['title'] as String? ?? 'Workout',
       completedAt: DateTime.tryParse(
@@ -46,10 +58,18 @@ class WorkoutRecord {
           .toList(growable: false),
       perceivedEffort:
           (json['perceivedEffort'] ?? json['perceived_effort']) as String?,
+      sessionRpe:
+          parsedRpe == null ? null : parsedRpe.clamp(1, 10).toInt(),
+      feedbackNote:
+          (json['feedbackNote'] ?? json['feedback_note'])?.toString(),
     );
   }
 
-  WorkoutRecord copyWith({String? perceivedEffort}) {
+  WorkoutRecord copyWith({
+    String? perceivedEffort,
+    int? sessionRpe,
+    String? feedbackNote,
+  }) {
     return WorkoutRecord(
       title: title,
       completedAt: completedAt,
@@ -57,6 +77,8 @@ class WorkoutRecord {
       completedSets: completedSets,
       exercises: exercises,
       perceivedEffort: perceivedEffort ?? this.perceivedEffort,
+      sessionRpe: sessionRpe ?? this.sessionRpe,
+      feedbackNote: feedbackNote ?? this.feedbackNote,
     );
   }
 }
@@ -116,6 +138,8 @@ class ReadinessRecord {
 }
 
 class TrainingStore {
+  // Legacy key names intentionally remain unchanged so existing installations
+  // keep all history through the LeanEat -> LeanIt visible-brand migration.
   static const _workoutsKey = 'leaneat_workout_history_v2';
   static const _readinessKey = 'leaneat_readiness_history_v2';
   static final ValueNotifier<int> revision = ValueNotifier<int>(0);
@@ -140,18 +164,25 @@ class TrainingStore {
     final client = _clientOrNull;
     final user = client?.auth.currentUser;
     if (client != null && user != null) {
+      final payload = <String, dynamic>{
+        'user_id': user.id,
+        'title': record.title,
+        'completed_at': record.completedAt.toIso8601String(),
+        'duration_seconds': record.durationSeconds,
+        'completed_sets': record.completedSets,
+        'exercises': record.exercises,
+      };
       try {
-        await client.from('workout_logs').insert({
-          'user_id': user.id,
-          'title': record.title,
-          'completed_at': record.completedAt.toIso8601String(),
-          'duration_seconds': record.durationSeconds,
-          'completed_sets': record.completedSets,
-          'exercises': record.exercises,
-        });
-      } catch (_) {
-        // Perceived effort stays local-first until the backend table gains an
-        // explicit column. Other workout data remains safe locally as well.
+        await client.from('workout_logs').insert(payload);
+      } catch (error) {
+        await SyncQueueStore(userScope: user.id).enqueue(
+          table: 'workout_logs',
+          action: 'insert_if_absent',
+          data: payload,
+          matchColumn: 'completed_at',
+          matchValue: payload['completed_at'],
+        );
+        await AppErrorStore.record('Workout cloud sync', error);
       }
     }
   }
@@ -159,16 +190,35 @@ class TrainingStore {
   static Future<void> updateWorkoutEffort({
     required DateTime completedAt,
     required String effort,
+  }) {
+    return updateWorkoutFeedback(completedAt: completedAt, effort: effort);
+  }
+
+  static Future<void> updateWorkoutFeedback({
+    required DateTime completedAt,
+    String? effort,
+    int? sessionRpe,
+    String? note,
   }) async {
-    if (!const {'easy', 'about_right', 'hard'}.contains(effort)) return;
+    if (effort != null &&
+        !const {'easy', 'about_right', 'hard'}.contains(effort)) {
+      return;
+    }
+    if (sessionRpe != null && (sessionRpe < 1 || sessionRpe > 10)) return;
+
     final records = await _loadLocalWorkouts();
-    final updated = records
-        .map(
-          (record) => _sameWorkoutTime(record.completedAt, completedAt)
-              ? record.copyWith(perceivedEffort: effort)
-              : record,
-        )
-        .toList(growable: false);
+    var changed = false;
+    final updated = records.map((record) {
+      if (!_sameWorkoutTime(record.completedAt, completedAt)) return record;
+      changed = true;
+      return record.copyWith(
+        perceivedEffort: effort,
+        sessionRpe: sessionRpe,
+        feedbackNote: note?.trim(),
+      );
+    }).toList(growable: false);
+    if (!changed) return;
+
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList(
       _workoutsKey,
@@ -201,11 +251,11 @@ class TrainingStore {
         for (final record in cloud) {
           final signature = _workoutSignature(record);
           final existing = merged[signature];
-          if (existing == null) {
-            merged[signature] = record;
-          }
+          if (existing == null) merged[signature] = record;
         }
-      } catch (_) {}
+      } catch (error) {
+        await AppErrorStore.record('Workout history load', error);
+      }
     }
 
     final records = merged.values.toList(growable: false)
@@ -252,21 +302,37 @@ class TrainingStore {
     final client = _clientOrNull;
     final user = client?.auth.currentUser;
     if (client != null && user != null) {
+      final payload = <String, dynamic>{
+        'user_id': user.id,
+        'recorded_at': record.recordedAt.toIso8601String(),
+        'sleep': record.sleep,
+        'energy': record.energy,
+        'soreness': record.soreness,
+        'stress': record.stress,
+        'readiness_score': record.score,
+      };
       try {
-        await client.from('readiness_logs').insert({
-          'user_id': user.id,
-          'recorded_at': record.recordedAt.toIso8601String(),
-          'sleep': record.sleep,
-          'energy': record.energy,
-          'soreness': record.soreness,
-          'stress': record.stress,
-          'readiness_score': record.score,
-        });
-      } catch (_) {}
+        await client.from('readiness_logs').insert(payload);
+      } catch (error) {
+        await SyncQueueStore(userScope: user.id).enqueue(
+          table: 'readiness_logs',
+          action: 'insert_if_absent',
+          data: payload,
+          matchColumn: 'recorded_at',
+          matchValue: payload['recorded_at'],
+        );
+        await AppErrorStore.record('Readiness cloud sync', error);
+      }
     }
   }
 
   static Future<List<ReadinessRecord>> loadReadiness() async {
+    final local = await _loadLocalReadiness();
+    final merged = <String, ReadinessRecord>{
+      for (final record in local)
+        record.recordedAt.toUtc().toIso8601String(): record,
+    };
+
     final client = _clientOrNull;
     final user = client?.auth.currentUser;
     if (client != null && user != null) {
@@ -277,14 +343,24 @@ class TrainingStore {
             .eq('user_id', user.id)
             .order('recorded_at', ascending: false)
             .limit(90);
-        final cloud = (rows as List)
-            .whereType<Map<String, dynamic>>()
-            .map(ReadinessRecord.fromJson)
-            .toList(growable: false);
-        if (cloud.isNotEmpty) return cloud;
-      } catch (_) {}
+        for (final row in (rows as List).whereType<Map<String, dynamic>>()) {
+          final record = ReadinessRecord.fromJson(row);
+          merged.putIfAbsent(
+            record.recordedAt.toUtc().toIso8601String(),
+            () => record,
+          );
+        }
+      } catch (error) {
+        await AppErrorStore.record('Readiness history load', error);
+      }
     }
 
+    final records = merged.values.toList(growable: false)
+      ..sort((a, b) => b.recordedAt.compareTo(a.recordedAt));
+    return records.take(90).toList(growable: false);
+  }
+
+  static Future<List<ReadinessRecord>> _loadLocalReadiness() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getStringList(_readinessKey) ?? const <String>[];
     final records = <ReadinessRecord>[];
