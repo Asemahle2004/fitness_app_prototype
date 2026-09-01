@@ -3,7 +3,7 @@ import 'package:fitness_app_prototype/workout_engine.dart';
 import 'package:fitness_app_prototype/workout_structure.dart';
 
 void main() {
-  test('60 minute strength session gets warm-up and cool-down', () {
+  test('strength session is not padded with legacy warm-up or cool-down blocks', () {
     const base = GeneratedWorkout(
       title: 'Upper Body A',
       exercises: [
@@ -22,9 +22,9 @@ void main() {
       location: 'Gym',
     );
 
-    expect(result.exercises.length, 8);
-    expect(result.exercises.first.name, 'Dynamic Warm-Up');
-    expect(result.exercises.last.name, 'Gentle Mobility Flow');
+    expect(result.exercises.length, 6);
+    expect(result.exercises.first.name, 'Dumbbell Bench Press');
+    expect(result.exercises.last.name, 'Lateral Raise');
   });
 
   test('running session is not padded with duplicate structure', () {
