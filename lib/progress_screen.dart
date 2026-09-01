@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'adaptive_strength_engine.dart';
 import 'body_progress_entry_section.dart';
 import 'exercise_performance_store.dart';
 import 'exercise_progress_entry_section.dart';
@@ -8,6 +9,8 @@ import 'personal_records_entry_section.dart';
 import 'progress_insights_engine.dart';
 import 'progress_insights_section.dart';
 import 'run_tracking_entry_section.dart';
+import 'strength_adaptation_cache.dart';
+import 'strength_adaptation_section.dart';
 import 'training_store.dart';
 import 'workout_calendar_entry_section.dart';
 
@@ -29,19 +32,40 @@ class _ProgressScreenState extends State<ProgressScreen> {
 
   Future<_ProgressData> _loadProgress() async {
     final workoutsFuture = TrainingStore.loadWorkouts();
+    final readinessFuture = TrainingStore.loadReadiness();
     final setsFuture = ExercisePerformanceStore(
       Supabase.instance.client,
     ).loadAll();
 
+    final workouts = await workoutsFuture;
+    final readiness = await readinessFuture;
+    final sets = await setsFuture;
+    final adaptation = StrengthAdaptationEngine.analyse(
+      workouts: workouts,
+      sets: sets,
+      readiness: readiness.isEmpty ? null : readiness.first,
+    );
+    StrengthAdaptationCache.set(adaptation);
+
     return _ProgressData(
-      workouts: await workoutsFuture,
-      sets: await setsFuture,
+      workouts: workouts,
+      sets: sets,
+      readiness: readiness,
+      adaptation: adaptation,
     );
   }
 
   Future<void> _refresh() async {
     setState(() => _future = _loadProgress());
     await _future;
+  }
+
+  Future<void> _recordEffort(WorkoutRecord record, String effort) async {
+    await TrainingStore.updateWorkoutEffort(
+      completedAt: record.completedAt,
+      effort: effort,
+    );
+    await _refresh();
   }
 
   int _streak(List<WorkoutRecord> records) {
@@ -117,6 +141,12 @@ class _ProgressScreenState extends State<ProgressScreen> {
             workouts: records,
             sets: sets,
           );
+          final adaptation = data.adaptation ??
+              StrengthAdaptationEngine.analyse(
+                workouts: records,
+                sets: sets,
+                readiness: data.readiness.isEmpty ? null : data.readiness.first,
+              );
 
           return RefreshIndicator(
             onRefresh: _refresh,
@@ -179,6 +209,8 @@ class _ProgressScreenState extends State<ProgressScreen> {
                 const SizedBox(height: 28),
                 ProgressInsightsSection(insights: insights),
                 const SizedBox(height: 28),
+                StrengthAdaptationSection(recommendation: adaptation),
+                const SizedBox(height: 28),
                 const BodyProgressEntrySection(),
                 const SizedBox(height: 28),
                 const RunTrackingEntrySection(),
@@ -232,6 +264,14 @@ class _ProgressScreenState extends State<ProgressScreen> {
                     color: Color(0xFF102A43),
                   ),
                 ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Mark how the session felt. LeanIt uses repeated Hard sessions as a fatigue signal instead of assuming every completed workout is ready to progress.',
+                  style: TextStyle(
+                    color: Color(0xFF627D98),
+                    height: 1.4,
+                  ),
+                ),
                 const SizedBox(height: 12),
                 if (records.isEmpty)
                   Container(
@@ -248,7 +288,10 @@ class _ProgressScreenState extends State<ProgressScreen> {
                   )
                 else
                   ...records.take(20).map(
-                        (record) => _WorkoutTile(record: record),
+                        (record) => _WorkoutTile(
+                          record: record,
+                          onEffort: (effort) => _recordEffort(record, effort),
+                        ),
                       ),
               ],
             ),
@@ -262,10 +305,14 @@ class _ProgressScreenState extends State<ProgressScreen> {
 class _ProgressData {
   final List<WorkoutRecord> workouts;
   final List<ExerciseSetPerformance> sets;
+  final List<ReadinessRecord> readiness;
+  final StrengthAdaptationRecommendation? adaptation;
 
   const _ProgressData({
     this.workouts = const <WorkoutRecord>[],
     this.sets = const <ExerciseSetPerformance>[],
+    this.readiness = const <ReadinessRecord>[],
+    this.adaptation,
   });
 }
 
@@ -407,8 +454,9 @@ class _SetPerformanceTile extends StatelessWidget {
 
 class _WorkoutTile extends StatelessWidget {
   final WorkoutRecord record;
+  final ValueChanged<String> onEffort;
 
-  const _WorkoutTile({required this.record});
+  const _WorkoutTile({required this.record, required this.onEffort});
 
   @override
   Widget build(BuildContext context) {
@@ -423,45 +471,109 @@ class _WorkoutTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: const Color(0xFFD9E2EC)),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const CircleAvatar(
-            backgroundColor: Color(0xFFE5F4F8),
-            child: Icon(Icons.check, color: Color(0xFF176B87)),
+          Row(
+            children: [
+              const CircleAvatar(
+                backgroundColor: Color(0xFFE5F4F8),
+                child: Icon(Icons.check, color: Color(0xFF176B87)),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      record.title,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF102A43),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '$date • $minutes min • ${record.completedSets} sets',
+                      style: const TextStyle(
+                        color: Color(0xFF627D98),
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${record.exercises.length} exercises',
+                      style: const TextStyle(
+                        color: Color(0xFF829AB1),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  record.title,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF102A43),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '$date • $minutes min • ${record.completedSets} sets',
-                  style: const TextStyle(
-                    color: Color(0xFF627D98),
-                    fontSize: 13,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${record.exercises.length} exercises',
-                  style: const TextStyle(
-                    color: Color(0xFF829AB1),
-                    fontSize: 12,
-                  ),
-                ),
-              ],
+          const SizedBox(height: 12),
+          const Text(
+            'How did this session feel?',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF486581),
             ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _EffortChip(
+                label: 'Easy',
+                value: 'easy',
+                selected: record.perceivedEffort == 'easy',
+                onSelected: onEffort,
+              ),
+              _EffortChip(
+                label: 'About right',
+                value: 'about_right',
+                selected: record.perceivedEffort == 'about_right',
+                onSelected: onEffort,
+              ),
+              _EffortChip(
+                label: 'Hard',
+                value: 'hard',
+                selected: record.perceivedEffort == 'hard',
+                onSelected: onEffort,
+              ),
+            ],
           ),
         ],
       ),
+    );
+  }
+}
+
+class _EffortChip extends StatelessWidget {
+  final String label;
+  final String value;
+  final bool selected;
+  final ValueChanged<String> onSelected;
+
+  const _EffortChip({
+    required this.label,
+    required this.value,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      onSelected: (isSelected) {
+        if (isSelected) onSelected(value);
+      },
     );
   }
 }
