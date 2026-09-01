@@ -6,6 +6,8 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'exercise_curation.dart';
+
 class OnlineExercise {
   final String id;
   final String name;
@@ -411,7 +413,22 @@ class ExerciseRepository {
     // movement (for example "Barbell Bench Press - Medium Grip"). Resolve
     // those safe naming variants so programme cards can show their existing
     // reference media instead of a placeholder.
-    return closestNameMatch(name, catalogue);
+    final direct = closestNameMatch(name, catalogue);
+    if (direct != null) return direct;
+
+    // A small, reviewed alias table handles source-catalogue names that are
+    // semantically the same programme movement but cannot be resolved safely
+    // by token matching alone (for example Machine Chest Press -> Leverage
+    // Chest Press). Aliases are deliberately explicit rather than fuzzy.
+    for (final alias in ExerciseCuration.aliasesFor(name)) {
+      final aliasLower = alias.toLowerCase();
+      for (final exercise in catalogue) {
+        if (exercise.name.toLowerCase() == aliasLower) return exercise;
+      }
+      final aliasMatch = closestNameMatch(alias, catalogue);
+      if (aliasMatch != null) return aliasMatch;
+    }
+    return null;
   }
 
   Future<OnlineExercise?> fetchById(String exerciseId) async {
@@ -440,7 +457,7 @@ class ExerciseRepository {
     final merged = <String, OnlineExercise>{};
 
     final freeCatalogue = await _freeCatalogueSafely();
-    for (final exercise in freeCatalogue.take(freeCatalogueLimit)) {
+    for (final exercise in freeCatalogue) {
       merged[exercise.id] = exercise;
     }
 
@@ -460,7 +477,44 @@ class ExerciseRepository {
       // The cached/free catalogue remains available as the fallback.
     }
 
-    final result = merged.values.toList(growable: false)
+    // The public fallback is intentionally broad. It is source material for
+    // review, not the product catalogue. Only one reviewed match for each
+    // programme-approved canonical exercise is exposed to the library,
+    // custom-workout picker and substitution engine.
+    final source = merged.values.toList(growable: false);
+    final curated = <String, OnlineExercise>{};
+
+    for (final canonicalName in ExerciseCuration.approvedCanonicalNames) {
+      OnlineExercise? match;
+      final canonicalLower = canonicalName.toLowerCase();
+
+      for (final exercise in source) {
+        if (exercise.name.toLowerCase() == canonicalLower) {
+          match = exercise;
+          break;
+        }
+      }
+
+      match ??= closestNameMatch(canonicalName, source);
+
+      if (match == null) {
+        for (final alias in ExerciseCuration.aliasesFor(canonicalName)) {
+          final aliasLower = alias.toLowerCase();
+          for (final exercise in source) {
+            if (exercise.name.toLowerCase() == aliasLower) {
+              match = exercise;
+              break;
+            }
+          }
+          match ??= closestNameMatch(alias, source);
+          if (match != null) break;
+        }
+      }
+
+      if (match != null) curated[match.id] = match;
+    }
+
+    final result = curated.values.toList(growable: false)
       ..sort(
         (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
       );
