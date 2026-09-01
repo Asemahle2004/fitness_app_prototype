@@ -224,7 +224,7 @@ class ProgrammeEngine {
             : availableDays >= 5
                 ? 5
                 : 4;
-        if (fitnessLevel == 'Low') preferred = preferred.clamp(1, 4);
+        if (fitnessLevel == 'Low') preferred = preferred.clamp(1, 4).toInt();
         break;
       default:
         preferred = 3;
@@ -233,7 +233,7 @@ class ProgrammeEngine {
     // A beginner with low current fitness gets a simpler starting frequency,
     // even when many days are technically available.
     if (experience == 'Beginner' && fitnessLevel == 'Low') {
-      preferred = preferred.clamp(1, 3);
+      preferred = preferred.clamp(1, 3).toInt();
     }
 
     // People reporting a mostly sedentary baseline start with fewer hard
@@ -241,7 +241,7 @@ class ProgrammeEngine {
     // on non-programme days without LeanIt prescribing another hard session.
     if (activityLevel == 'Mostly sedentary' &&
         (goal == 'Lose Body Fat' || goal == 'Improve General Fitness')) {
-      preferred = preferred.clamp(1, 4);
+      preferred = preferred.clamp(1, 4).toInt();
     }
 
     // A home-only muscle-gain plan with very little resistance equipment uses
@@ -251,13 +251,13 @@ class ProgrammeEngine {
         locations.length == 1 &&
         locations.contains('Home') &&
         _homeStrengthScore(homeEquipment) < 2) {
-      preferred = preferred.clamp(1, 3);
+      preferred = preferred.clamp(1, 3).toInt();
     }
 
     // Limitations do not get diagnosed here. We simply avoid escalating a low
     // fitness starting point; exercise-level exclusions remain SafetyEngine's job.
     if (hasLimitation && fitnessLevel == 'Low') {
-      preferred = preferred.clamp(1, 3);
+      preferred = preferred.clamp(1, 3).toInt();
     }
 
     // Very short sessions are already trimmed by WorkoutEngine. Do not respond

@@ -450,12 +450,33 @@ class _LeanEatTodayDashboardState extends State<LeanEatTodayDashboard> {
                         children: [
                           _statChip(Icons.schedule_rounded, session.duration),
                           _statChip(Icons.place_outlined, session.location),
+                          _statChip(Icons.bolt_rounded, session.intensity),
                           _statChip(
                             Icons.format_list_numbered_rounded,
                             'Session ${shownIndex + 1}/${programme.sessions.length}',
                           ),
                         ],
                       ),
+                      const SizedBox(height: 14),
+                      Text(
+                        session.focus,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF245B69),
+                        ),
+                      ),
+                      if (session.personalisationNote.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          session.personalisationNote,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            height: 1.4,
+                            color: Color(0xFF627D98),
+                          ),
+                        ),
+                      ],
                       if (adaptation != null && adaptation.status != SafetyStatus.normal) ...[
                         const SizedBox(height: 16),
                         Container(
