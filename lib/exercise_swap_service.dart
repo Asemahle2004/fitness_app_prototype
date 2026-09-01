@@ -119,6 +119,14 @@ class ExerciseSwapService {
         if (!locationMatch) continue;
       }
 
+      if (!ExerciseSwapRanker.isSuitableCandidate(
+        current: current,
+        candidate: candidate,
+        reason: reason,
+      )) {
+        continue;
+      }
+
       final scoring = ExerciseSwapRanker.score(
         current: current,
         candidate: candidate,
@@ -144,9 +152,9 @@ class ExerciseSwapService {
     });
 
     return ExerciseSwapResult(
-      suggestions: ranked.take(8).toList(growable: false),
+      suggestions: ranked.take(3).toList(growable: false),
       message: ranked.isEmpty
-          ? 'LeanIt could not find a suitable alternative that passes the current filters.'
+          ? 'LeanIt could not find a suitable alternative that preserves the main training purpose with the current equipment filters.'
           : null,
     );
   }
@@ -242,6 +250,51 @@ class ExerciseSwapScore {
 }
 
 class ExerciseSwapRanker {
+  static bool isSuitableCandidate({
+    required ExercisePrescription current,
+    required OnlineExercise candidate,
+    required ExerciseSwapReason reason,
+  }) {
+    final firstTarget = current.target
+        .split(RegExp(r'[,;+]'))
+        .map((value) => value.trim())
+        .firstWhere((value) => value.isNotEmpty, orElse: () => current.target);
+    final intendedPrimary = _muscleTokens(firstTarget);
+    final candidatePrimary = _muscleTokens(candidate.primaryMuscles.join(' '));
+
+    // A replacement should preserve the main programme role, not merely share
+    // a secondary muscle. For example a reverse fly is not a chest-press
+    // replacement just because both movements involve the shoulders.
+    if (intendedPrimary.isNotEmpty &&
+        candidatePrimary.intersection(intendedPrimary).isEmpty) {
+      return false;
+    }
+
+    final currentPatterns = _movementTokens(current.name);
+    final candidatePatterns = _movementTokens(
+      '${candidate.name} ${candidate.movementPattern ?? ''}',
+    );
+    if (currentPatterns.isNotEmpty &&
+        candidatePatterns.isNotEmpty &&
+        currentPatterns.intersection(candidatePatterns).isEmpty) {
+      return false;
+    }
+
+    if (reason == ExerciseSwapReason.equipmentUnavailable) {
+      final currentEquipment =
+          _normaliseEquipment('${current.equipment} ${current.name}');
+      final candidateEquipment = _normaliseEquipment(
+        '${candidate.equipment.join(' ')} ${candidate.name}',
+      );
+      final unavailableOverlap =
+          candidateEquipment.intersection(currentEquipment)
+            ..remove('bodyweight');
+      if (unavailableOverlap.isNotEmpty) return false;
+    }
+
+    return true;
+  }
+
   static ExerciseSwapScore score({
     required ExercisePrescription current,
     required OnlineExercise candidate,
@@ -272,9 +325,11 @@ class ExerciseSwapRanker {
       why.add('similar movement');
     }
 
-    final currentEquipment = _normaliseEquipment(current.equipment);
-    final candidateEquipment =
-        _normaliseEquipment(candidate.equipment.join(' '));
+    final currentEquipment =
+        _normaliseEquipment('${current.equipment} ${current.name}');
+    final candidateEquipment = _normaliseEquipment(
+      '${candidate.equipment.join(' ')} ${candidate.name}',
+    );
 
     if (reason == ExerciseSwapReason.equipmentUnavailable) {
       if (candidateEquipment.contains('bodyweight')) {
@@ -284,8 +339,6 @@ class ExerciseSwapRanker {
       if (candidateEquipment.intersection(currentEquipment).isEmpty) {
         score += 8;
         why.add('different equipment');
-      } else {
-        score -= 8;
       }
       final available = _normaliseEquipment(homeEquipment.join(' '));
       if (available.isNotEmpty &&
