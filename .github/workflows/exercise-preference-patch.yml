@@ -1,0 +1,31 @@
+name: Run exercise preference integration
+
+on:
+  push:
+    branches: [feature/exercise-preference-memory]
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    if: ${{ !contains(github.event.head_commit.message, '[exercise-preference-patch]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/exercise-preference-memory
+      - name: Apply exercise preference integration
+        run: python tools/patch_exercise_preferences.py
+      - name: Commit integration
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add lib/exercise_swap_service.dart lib/live_workout_screen.dart lib/account_screen.dart
+          if git diff --cached --quiet; then
+            echo "No integration changes required"
+          else
+            git commit -m "[exercise-preference-patch] Integrate learned exercise preferences"
+            git push origin feature/exercise-preference-memory
+          fi
