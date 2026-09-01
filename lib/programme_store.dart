@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'adaptive_programme_engine.dart';
+import 'programme_adaptation_store.dart';
 import 'programme_engine.dart';
 
 class StoredProgramme {
@@ -176,6 +178,7 @@ class ProgrammeStore {
     if (existing != null) {
       final stored = _fromRow(Map<String, dynamic>.from(existing));
       if (stored.profileSignature == signature && stored.hasSessions) {
+        await ProgrammeAdaptationStore.ensureWeek(stored.currentWeek);
         return stored;
       }
     }
@@ -196,6 +199,11 @@ class ProgrammeStore {
     };
 
     await client.from('current_programmes').upsert(row);
+    await ProgrammeAdaptationStore.resetForWeek(
+      1,
+      startedAt: DateTime.now(),
+      clearEvents: true,
+    );
 
     return StoredProgramme(
       programme: generated,
@@ -239,26 +247,119 @@ class ProgrammeStore {
     }).eq('user_id', user.id);
   }
 
-  Future<void> completeSession(int completedIndex) async {
-    final user = client.auth.currentUser;
-    if (user == null) return;
+  Future<void> completeSession(
+    int completedIndex, {
+    Map<String, dynamic>? profile,
+  }) async {
     final current = await loadCurrent();
     if (current == null || current.programme.sessions.isEmpty) return;
+    if (completedIndex < 0 || completedIndex >= current.programme.sessions.length) {
+      return;
+    }
+
+    final session = current.programme.sessions[completedIndex];
+    await ProgrammeAdaptationStore.recordSessionEvent(
+      weekNumber: current.currentWeek,
+      sessionIndex: completedIndex,
+      sessionTitle: session.title,
+      type: ProgrammeSessionEventType.completed,
+    );
+    await _advanceSession(
+      current: current,
+      completedIndex: completedIndex,
+      profile: profile,
+    );
+  }
+
+  Future<void> skipSession(
+    int skippedIndex, {
+    required Map<String, dynamic> profile,
+  }) async {
+    final current = await loadCurrent();
+    if (current == null || current.programme.sessions.isEmpty) return;
+    if (skippedIndex < 0 || skippedIndex >= current.programme.sessions.length) {
+      return;
+    }
+    if (current.activeSessionIndex != null) return;
+
+    final session = current.programme.sessions[skippedIndex];
+    await ProgrammeAdaptationStore.recordSessionEvent(
+      weekNumber: current.currentWeek,
+      sessionIndex: skippedIndex,
+      sessionTitle: session.title,
+      type: ProgrammeSessionEventType.skipped,
+    );
+    await _advanceSession(
+      current: current,
+      completedIndex: skippedIndex,
+      profile: profile,
+    );
+  }
+
+  Future<void> _advanceSession({
+    required StoredProgramme current,
+    required int completedIndex,
+    Map<String, dynamic>? profile,
+  }) async {
+    final user = client.auth.currentUser;
+    if (user == null || current.programme.sessions.isEmpty) return;
 
     final count = current.programme.sessions.length;
     var nextIndex = completedIndex + 1;
     var nextWeek = current.currentWeek;
-    if (nextIndex >= count) {
-      nextIndex = 0;
-      nextWeek += 1;
+
+    if (nextIndex < count) {
+      await client.from('current_programmes').update({
+        'current_session_index': nextIndex,
+        'active_session_index': null,
+        'active_started_at': null,
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('user_id', user.id);
+      return;
+    }
+
+    nextIndex = 0;
+    nextWeek += 1;
+    var nextProgramme = profile == null
+        ? current.programme
+        : programmeFromProfile(profile);
+    String? adaptiveMode;
+    String? adaptiveSummary;
+
+    if (profile != null) {
+      try {
+        final result = await AdaptiveProgrammeService(client).buildNextWeek(
+          profile: profile,
+          currentProgramme: current.programme,
+          currentWeek: current.currentWeek,
+        );
+        nextProgramme = result.programme;
+        adaptiveMode = result.decision.mode.name;
+        adaptiveSummary = result.decision.summary;
+      } catch (_) {
+        // If adaptation data is unavailable, fall back to the safe static
+        // profile-generated programme rather than blocking the week transition.
+        nextProgramme = programmeFromProfile(profile);
+      }
     }
 
     await client.from('current_programmes').update({
+      'goal': nextProgramme.goal,
+      'structure': nextProgramme.structure,
+      'explanation': nextProgramme.explanation,
+      'sessions': _sessionsToJson(nextProgramme.sessions),
       'current_week': nextWeek,
       'current_session_index': nextIndex,
       'active_session_index': null,
       'active_started_at': null,
       'updated_at': DateTime.now().toIso8601String(),
     }).eq('user_id', user.id);
+
+    await ProgrammeAdaptationStore.resetForWeek(
+      nextWeek,
+      startedAt: DateTime.now(),
+      previousMode: adaptiveMode,
+      previousSummary: adaptiveSummary,
+    );
   }
 }
