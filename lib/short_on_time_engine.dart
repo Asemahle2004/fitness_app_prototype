@@ -6,6 +6,7 @@ import 'workout_engine.dart';
 class ShortOnTimePlan {
   final List<ExercisePrescription> exercises;
   final List<int> completedSets;
+  final int currentIndex;
   final int requestedMinutes;
   final int estimatedMinutes;
   final int originalRemainingSets;
@@ -16,6 +17,7 @@ class ShortOnTimePlan {
   const ShortOnTimePlan({
     required this.exercises,
     required this.completedSets,
+    required this.currentIndex,
     required this.requestedMinutes,
     required this.estimatedMinutes,
     required this.originalRemainingSets,
@@ -55,6 +57,7 @@ class ShortOnTimeEngine {
       return ShortOnTimePlan(
         exercises: const [],
         completedSets: const [],
+        currentIndex: 0,
         requestedMinutes: minutesRemaining.clamp(minimumMinutes, maximumMinutes),
         estimatedMinutes: 0,
         originalRemainingSets: 0,
@@ -167,6 +170,12 @@ class ShortOnTimeEngine {
     return ShortOnTimePlan(
       exercises: adaptedExercises,
       completedSets: adaptedCompleted,
+      currentIndex: _mappedCurrentIndex(
+        normalized,
+        workingSets,
+        safeCompleted,
+        currentIndex,
+      ),
       requestedMinutes: requested,
       estimatedMinutes: math.max(1, (estimatedSeconds / 60).ceil()),
       originalRemainingSets: originalRemaining,
@@ -316,8 +325,10 @@ class ShortOnTimeEngine {
     required bool allowLastUnstartedSet,
   }) {
     final done = completed[index];
+    if (protectedIndexes.contains(index)) {
+      return math.min(targets[index], done + 1);
+    }
     if (done > 0) return done;
-    if (protectedIndexes.contains(index)) return 1;
     if (!allowLastUnstartedSet) return 1;
     return 0;
   }
