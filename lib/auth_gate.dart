@@ -38,6 +38,9 @@ class _LeanEatAuthGateState extends State<LeanEatAuthGate> {
   }
 
   Future<Map<String, dynamic>?> _loadProfile() {
+    // ProfileService is local-first. Supabase persists the signed-in auth
+    // session on-device; once this profile has been loaded successfully, the
+    // user can reopen LeanIt without re-entering a password and without data.
     return ProfileService(Supabase.instance.client).currentProfileMap();
   }
 
@@ -69,7 +72,7 @@ class _LeanEatAuthGateState extends State<LeanEatAuthGate> {
                         const Icon(Icons.cloud_off_outlined, size: 42),
                         const SizedBox(height: 12),
                         const Text(
-                          'LeanEat could not load your saved profile.',
+                          'LeanIt could not load your saved profile.',
                           textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 14),
@@ -124,8 +127,12 @@ class _LeanEatAuthScreenState extends State<LeanEatAuthScreen> {
     final email = _email.text.trim();
     final password = _password.text;
     final name = _name.text.trim();
-    if (!email.contains('@') || password.length < 8 || (_signUp && name.length < 2)) {
-      _message('Enter a valid email, a name, and a password of at least 8 characters.');
+    if (!email.contains('@') ||
+        password.length < 8 ||
+        (_signUp && name.length < 2)) {
+      _message(
+        'Enter a valid email, a name, and a password of at least 8 characters.',
+      );
       return;
     }
     setState(() => _busy = true);
@@ -138,7 +145,9 @@ class _LeanEatAuthScreenState extends State<LeanEatAuthScreen> {
           data: {'full_name': name, 'display_name': name},
         );
         if (response.session == null) {
-          _message('Account created. Check your email to confirm your address, then sign in.');
+          _message(
+            'Account created. Check your email to confirm your address, then sign in.',
+          );
           setState(() => _signUp = false);
         }
       } else {
@@ -186,22 +195,44 @@ class _LeanEatAuthScreenState extends State<LeanEatAuthScreen> {
                         Text(
                           _signUp ? 'Build your strongest routine.' : 'Welcome back.',
                           textAlign: TextAlign.center,
-                          style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: LeanEatColors.ink),
+                          style: const TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.w900,
+                            color: LeanEatColors.ink,
+                          ),
                         ),
                         const SizedBox(height: 8),
                         Text(
                           _signUp
                               ? 'Your training, recovery and progress in one adaptive fitness account.'
-                              : 'Sign in to continue your programme and progress.',
+                              : 'Sign in once on this device. LeanIt keeps your session so you can reopen the app without signing in every time.',
                           textAlign: TextAlign.center,
-                          style: const TextStyle(color: Color(0xFF66766D), height: 1.4),
+                          style: const TextStyle(
+                            color: Color(0xFF66766D),
+                            height: 1.4,
+                          ),
                         ),
                         const SizedBox(height: 26),
                         if (_signUp) ...[
-                          TextField(controller: _name, textInputAction: TextInputAction.next, decoration: const InputDecoration(labelText: 'Your name', prefixIcon: Icon(Icons.person_outline))),
+                          TextField(
+                            controller: _name,
+                            textInputAction: TextInputAction.next,
+                            decoration: const InputDecoration(
+                              labelText: 'Your name',
+                              prefixIcon: Icon(Icons.person_outline),
+                            ),
+                          ),
                           const SizedBox(height: 12),
                         ],
-                        TextField(controller: _email, keyboardType: TextInputType.emailAddress, textInputAction: TextInputAction.next, decoration: const InputDecoration(labelText: 'Email', prefixIcon: Icon(Icons.mail_outline))),
+                        TextField(
+                          controller: _email,
+                          keyboardType: TextInputType.emailAddress,
+                          textInputAction: TextInputAction.next,
+                          decoration: const InputDecoration(
+                            labelText: 'Email',
+                            prefixIcon: Icon(Icons.mail_outline),
+                          ),
+                        ),
                         const SizedBox(height: 12),
                         TextField(
                           controller: _password,
@@ -211,20 +242,36 @@ class _LeanEatAuthScreenState extends State<LeanEatAuthScreen> {
                             labelText: 'Password',
                             prefixIcon: const Icon(Icons.lock_outline),
                             suffixIcon: IconButton(
-                              onPressed: () => setState(() => _hidePassword = !_hidePassword),
-                              icon: Icon(_hidePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                              onPressed: () => setState(
+                                () => _hidePassword = !_hidePassword,
+                              ),
+                              icon: Icon(
+                                _hidePassword
+                                    ? Icons.visibility_outlined
+                                    : Icons.visibility_off_outlined,
+                              ),
                             ),
                           ),
                         ),
                         const SizedBox(height: 20),
                         ElevatedButton(
                           onPressed: _busy ? null : _submit,
-                          child: Text(_busy ? 'PLEASE WAIT…' : (_signUp ? 'CREATE ACCOUNT' : 'SIGN IN')),
+                          child: Text(
+                            _busy
+                                ? 'PLEASE WAIT…'
+                                : (_signUp ? 'CREATE ACCOUNT' : 'SIGN IN'),
+                          ),
                         ),
                         const SizedBox(height: 10),
                         TextButton(
-                          onPressed: _busy ? null : () => setState(() => _signUp = !_signUp),
-                          child: Text(_signUp ? 'Already have an account? Sign in' : 'New to LeanEat? Create an account'),
+                          onPressed: _busy
+                              ? null
+                              : () => setState(() => _signUp = !_signUp),
+                          child: Text(
+                            _signUp
+                                ? 'Already have an account? Sign in'
+                                : 'New to LeanIt? Create an account',
+                          ),
                         ),
                         if (!_signUp)
                           TextButton(
@@ -237,7 +284,8 @@ class _LeanEatAuthScreenState extends State<LeanEatAuthScreen> {
                                       return;
                                     }
                                     try {
-                                      await Supabase.instance.client.auth.resetPasswordForEmail(email);
+                                      await Supabase.instance.client.auth
+                                          .resetPasswordForEmail(email);
                                       _message('Password reset email sent.');
                                     } on AuthException catch (e) {
                                       _message(e.message);
@@ -245,6 +293,16 @@ class _LeanEatAuthScreenState extends State<LeanEatAuthScreen> {
                                   },
                             child: const Text('Forgot password?'),
                           ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Account creation and password recovery need internet. After your account/profile has loaded once, your saved programme and core training tools remain available offline.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 11,
+                            height: 1.4,
+                            color: Color(0xFF829AB1),
+                          ),
+                        ),
                       ],
                     ),
                   ),
