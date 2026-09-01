@@ -3,12 +3,15 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'guided_run_engine.dart';
 import 'personal_record_celebration.dart';
 import 'personal_record_engine.dart';
 import 'run_tracking_engine.dart';
 import 'run_tracking_store.dart';
+import 'training_settings.dart';
+import 'training_tools_engine.dart';
 
 class LiveRunScreen extends StatefulWidget {
   final GuidedRunPlan? guidedPlan;
@@ -31,14 +34,35 @@ class _LiveRunScreenState extends State<LiveRunScreen> {
   bool _starting = false;
   bool _soundCues = true;
   bool _hapticCues = true;
+  bool _countdownCues = true;
   bool _guidedCompleteHandled = false;
   int _lastGuidedStepIndex = -2;
   String _gpsStatus = 'Ready';
+  TrainingSettings _settings = const TrainingSettings();
 
   GuidedRunProgress? get _guidedProgress {
     final plan = widget.guidedPlan;
     if (plan == null) return null;
     return GuidedRunEngine.progressFor(plan, _elapsedSeconds);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadTrainingSettings());
+  }
+
+  Future<void> _loadTrainingSettings() async {
+    final settings = await TrainingSettingsStore(
+      userScope: Supabase.instance.client.auth.currentUser?.id ?? 'guest',
+    ).load();
+    if (!mounted) return;
+    setState(() {
+      _settings = settings;
+      _soundCues = settings.soundCues;
+      _hapticCues = settings.hapticCues;
+      _countdownCues = settings.countdownCues;
+    });
   }
 
   @override
@@ -153,7 +177,8 @@ class _LiveRunScreenState extends State<LiveRunScreen> {
     if (progress.stepIndex != _lastGuidedStepIndex) {
       _lastGuidedStepIndex = progress.stepIndex;
       _emitGuidedCue();
-    } else if (progress.secondsRemainingInStep <= 3 &&
+    } else if (_countdownCues &&
+        progress.secondsRemainingInStep <= 3 &&
         progress.secondsRemainingInStep > 0 &&
         previous?.secondsRemainingInStep != progress.secondsRemainingInStep) {
       _emitGuidedCue(countdown: true);
@@ -271,14 +296,18 @@ class _LiveRunScreenState extends State<LiveRunScreen> {
       return;
     }
 
+    final pace = RunTrackingEngine.paceSecondsPerKm(
+      distanceMeters: _distanceMeters,
+      durationSeconds: _elapsedSeconds,
+    );
     final shouldSave = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
             title: const Text('Finish run?'),
             content: Text(
-              '${(_distanceMeters / 1000).toStringAsFixed(2)} km • '
+              '${TrainingToolsEngine.formatDistanceMeters(_distanceMeters, _settings.unitSystem)} • '
               '${RunTrackingEngine.formatDuration(_elapsedSeconds)} • '
-              '${RunTrackingEngine.formatPace(RunTrackingEngine.paceSecondsPerKm(distanceMeters: _distanceMeters, durationSeconds: _elapsedSeconds))}',
+              '${TrainingToolsEngine.formatPace(pace, _settings.unitSystem)}',
             ),
             actions: [
               TextButton(
@@ -432,6 +461,12 @@ class _LiveRunScreenState extends State<LiveRunScreen> {
                 avatar: const Icon(Icons.vibration_rounded, size: 18),
                 label: const Text('Vibration'),
               ),
+              FilterChip(
+                selected: _countdownCues,
+                onSelected: (value) => setState(() => _countdownCues = value),
+                avatar: const Icon(Icons.timer_outlined, size: 18),
+                label: const Text('3-2-1'),
+              ),
             ],
           ),
         ],
@@ -488,7 +523,10 @@ class _LiveRunScreenState extends State<LiveRunScreen> {
               const Spacer(),
               _Metric(
                 label: 'DISTANCE',
-                value: '${(_distanceMeters / 1000).toStringAsFixed(2)} km',
+                value: TrainingToolsEngine.formatDistanceMeters(
+                  _distanceMeters,
+                  _settings.unitSystem,
+                ),
               ),
               const SizedBox(height: 34),
               Row(
@@ -504,7 +542,10 @@ class _LiveRunScreenState extends State<LiveRunScreen> {
                   Expanded(
                     child: _Metric(
                       label: 'AVG PACE',
-                      value: RunTrackingEngine.formatPace(pace),
+                      value: TrainingToolsEngine.formatPace(
+                        pace,
+                        _settings.unitSystem,
+                      ),
                       compact: true,
                     ),
                   ),
