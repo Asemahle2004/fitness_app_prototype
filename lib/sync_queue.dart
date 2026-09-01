@@ -98,6 +98,17 @@ class SyncQueueStore {
     final sanitized = SyncSecurityPolicy.sanitize(data);
     if (sanitized.isEmpty) return;
     final current = await load();
+
+    // Deduplicate the same failed write before it reaches the queue. This is
+    // especially useful when the app retries the same completed workout after
+    // more than one temporary connectivity failure.
+    final duplicate = current.any((item) =>
+        item.table == table &&
+        item.action == action &&
+        item.matchColumn == matchColumn &&
+        item.matchValue?.toString() == matchValue?.toString());
+    if (duplicate && matchColumn != null) return;
+
     final operation = SyncOperation(
       id: 'sync_${DateTime.now().microsecondsSinceEpoch}',
       table: table,
@@ -188,6 +199,18 @@ class SyncCoordinator {
     final table = client.from(operation.table);
     switch (operation.action) {
       case 'insert':
+        await table.insert(operation.data);
+        return;
+      case 'insert_if_absent':
+        final column = operation.matchColumn;
+        if (column == null || operation.matchValue == null) {
+          throw StateError('Idempotent insert requires a match.');
+        }
+        final existing = await table
+            .select(column)
+            .eq(column, operation.matchValue)
+            .limit(1);
+        if (existing is List && existing.isNotEmpty) return;
         await table.insert(operation.data);
         return;
       case 'upsert':
