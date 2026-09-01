@@ -19,6 +19,20 @@ jobs:
           ref: feature/offline-first-foundation
           fetch-depth: 0
 
+      - name: Fix replacement escaping
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('tools/apply_offline_first_foundation_patch.py')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace(
+              'pattern.subn(replacement, workout_text, count=1)',
+              'pattern.subn(lambda _match: replacement, workout_text, count=1)',
+              1,
+          )
+          path.write_text(text, encoding='utf-8')
+          PY
+
       - name: Apply offline-first patch
         run: python tools/apply_offline_first_foundation_patch.py
 
@@ -30,6 +44,6 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add lib/offline_programme_exercises.dart lib/workout_engine.dart lib/exercise_repository.dart lib/exercise_media.dart lib/main.dart lib/account_screen.dart
+          git add tools/apply_offline_first_foundation_patch.py lib/offline_programme_exercises.dart lib/workout_engine.dart lib/exercise_repository.dart lib/exercise_media.dart lib/main.dart lib/account_screen.dart
           git commit -m "Integrate offline catalogue and time-budget workouts [offline-first-applied]"
           git push origin HEAD:feature/offline-first-foundation
