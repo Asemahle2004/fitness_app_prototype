@@ -3,6 +3,10 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'app_health.dart';
+import 'sync_queue.dart';
+import 'unit_display.dart';
+
 class ExerciseSetPerformance {
   final String workoutTitle;
   final String exerciseName;
@@ -34,9 +38,7 @@ class ExerciseSetPerformance {
 
     final rawSetNumber = number(map['set_number'] ?? map['setNumber']);
     final rawWeight = number(map['weight_kg'] ?? map['weightKg']);
-    final rawDuration = number(
-      map['duration_seconds'] ?? map['durationSeconds'],
-    );
+    final rawDuration = number(map['duration_seconds'] ?? map['durationSeconds']);
 
     return ExerciseSetPerformance(
       workoutTitle:
@@ -70,9 +72,8 @@ class ExerciseSetPerformance {
 
   bool get isDropSet => setType == 'drop';
 
-  String get setLabel => isDropSet
-      ? 'Drop ${dropNumber ?? 1}'
-      : 'Set $setNumber';
+  String get setLabel =>
+      isDropSet ? 'Drop ${dropNumber ?? 1}' : 'Set $setNumber';
 
   String get summary {
     if (durationSeconds != null) {
@@ -81,10 +82,7 @@ class ExerciseSetPerformance {
       return minutes > 0 ? '${minutes}m ${seconds}s' : '${seconds}s';
     }
     if (weightKg != null && reps != null) {
-      final weight = weightKg! % 1 == 0
-          ? weightKg!.toStringAsFixed(0)
-          : weightKg!.toStringAsFixed(1);
-      return '$weight kg × $reps reps';
+      return '${UnitDisplay.formatWeight(weightKg!)} × $reps reps';
     }
     if (reps != null) return '$reps reps';
     return 'Completed set';
@@ -106,13 +104,10 @@ class ExerciseSetPerformance {
     if (reps != null && weightKg != null) {
       if (reps! >= 12) {
         final nextWeight = weightKg! + 2.5;
-        final formatted = nextWeight % 1 == 0
-            ? nextWeight.toStringAsFixed(0)
-            : nextWeight.toStringAsFixed(1);
         final resetReps = (reps! - 2).clamp(8, 10);
-        return 'Try $formatted kg × $resetReps reps next time if today felt controlled.';
+        return 'Try ${UnitDisplay.formatWeight(nextWeight)} × $resetReps reps next time if today felt controlled.';
       }
-      return 'Try ${_formatWeight(weightKg!)} kg × ${reps! + 1} reps next time if form stays good.';
+      return 'Try ${UnitDisplay.formatWeight(weightKg!)} × ${reps! + 1} reps next time if form stays good.';
     }
 
     if (reps != null) {
@@ -120,10 +115,6 @@ class ExerciseSetPerformance {
     }
 
     return null;
-  }
-
-  static String _formatWeight(double value) {
-    return value % 1 == 0 ? value.toStringAsFixed(0) : value.toStringAsFixed(1);
   }
 }
 
@@ -157,31 +148,33 @@ class ExercisePerformanceStore {
       performedAt: DateTime.now(),
     );
 
-    // Local-first: a completed set is never lost merely because mobile data,
-    // Wi-Fi or the LeanIt backend is unavailable.
     await _saveLocal(record);
-
-    // Drop-set metadata is local-only until the LeanIt Supabase table has
-    // explicit set_type/drop_number columns. Do not flatten a drop into a
-    // normal cloud set because that would corrupt progression history.
     if (record.isDropSet) return;
 
     final user = client.auth.currentUser;
     if (user == null) return;
+    final payload = <String, dynamic>{
+      'user_id': user.id,
+      'workout_title': record.workoutTitle,
+      'exercise_name': record.exerciseName,
+      'set_number': record.setNumber,
+      'reps': record.reps,
+      'weight_kg': record.weightKg,
+      'duration_seconds': record.durationSeconds,
+      'performed_at': record.performedAt.toIso8601String(),
+    };
 
     try {
-      await client.from('exercise_set_logs').insert({
-        'user_id': user.id,
-        'workout_title': record.workoutTitle,
-        'exercise_name': record.exerciseName,
-        'set_number': record.setNumber,
-        'reps': record.reps,
-        'weight_kg': record.weightKg,
-        'duration_seconds': record.durationSeconds,
-        'performed_at': record.performedAt.toIso8601String(),
-      });
-    } catch (_) {
-      // The local record remains authoritative until a later sync path exists.
+      await client.from('exercise_set_logs').insert(payload);
+    } catch (error) {
+      await SyncQueueStore(userScope: user.id).enqueue(
+        table: 'exercise_set_logs',
+        action: 'insert_if_absent',
+        data: payload,
+        matchColumn: 'performed_at',
+        matchValue: payload['performed_at'],
+      );
+      await AppErrorStore.record('Exercise set cloud sync', error);
     }
   }
 
@@ -206,8 +199,8 @@ class ExercisePerformanceStore {
       if (row != null) {
         cloud = ExerciseSetPerformance.fromMap(Map<String, dynamic>.from(row));
       }
-    } catch (_) {
-      // Offline/local history remains available.
+    } catch (error) {
+      await AppErrorStore.record('Exercise set history load', error);
     }
 
     if (local == null) return cloud;
@@ -238,8 +231,8 @@ class ExercisePerformanceStore {
           final record = ExerciseSetPerformance.fromMap(row);
           merged[_signature(record)] = record;
         }
-      } catch (_) {
-        // Return local history when cloud history cannot be reached.
+      } catch (error) {
+        await AppErrorStore.record('Exercise set history load', error);
       }
     }
 
@@ -248,9 +241,6 @@ class ExercisePerformanceStore {
     return records.take(limit).toList(growable: false);
   }
 
-  /// Returns the complete local-first set history LeanIt currently retains.
-  /// The local cache stores up to 2,000 sets; cloud history is still limited to
-  /// the most recent 500 rows until the backend exposes a paginated sync path.
   Future<List<ExerciseSetPerformance>> loadAll() {
     return loadRecent(limit: _maxLocalRecords);
   }
@@ -288,14 +278,10 @@ class ExercisePerformanceStore {
         final decoded = jsonDecode(item);
         if (decoded is Map) {
           records.add(
-            ExerciseSetPerformance.fromMap(
-              Map<String, dynamic>.from(decoded),
-            ),
+            ExerciseSetPerformance.fromMap(Map<String, dynamic>.from(decoded)),
           );
         }
-      } catch (_) {
-        // Ignore one corrupt local entry instead of losing all history.
-      }
+      } catch (_) {}
     }
 
     records.sort((a, b) => b.performedAt.compareTo(a.performedAt));
