@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'exercise_curation.dart';
 import 'exercise_repository.dart';
 import 'profile_service.dart';
 
@@ -35,7 +36,7 @@ class _ExerciseMediaState extends State<ExerciseMedia> {
     super.initState();
     final client = Supabase.instance.client;
     _repository = ExerciseRepository(client);
-    _future = _repository.fetchByName(widget.exerciseName);
+    _future = _resolveExerciseMedia(widget.exerciseName);
     _profileFuture = ProfileService(client).currentProfile();
   }
 
@@ -43,8 +44,32 @@ class _ExerciseMediaState extends State<ExerciseMedia> {
   void didUpdateWidget(covariant ExerciseMedia oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.exerciseName != widget.exerciseName) {
-      _future = _repository.fetchByName(widget.exerciseName);
+      _future = _resolveExerciseMedia(widget.exerciseName);
     }
+  }
+
+  Future<OnlineExercise?> _resolveExerciseMedia(String exerciseName) async {
+    final direct = await _repository.fetchByName(exerciseName);
+    if (_hasRenderableImage(direct)) return direct;
+
+    // A canonical LeanIt/Supabase record may intentionally own the exercise
+    // metadata while its reviewed image is still empty. In that case, use only
+    // an explicit curated source alias for reference media rather than letting
+    // the blank canonical row hide an existing licensed demonstration.
+    for (final alias in ExerciseCuration.aliasesFor(exerciseName)) {
+      final candidate = await _repository.fetchByName(alias);
+      if (_hasRenderableImage(candidate)) return candidate;
+    }
+
+    return direct;
+  }
+
+  bool _hasRenderableImage(OnlineExercise? exercise) {
+    if (exercise == null) return false;
+    return exercise.hasApprovedGenericImage ||
+        exercise.hasReferenceGenericImage ||
+        exercise.hasReviewedMaleImage ||
+        exercise.hasReviewedFemaleImage;
   }
 
   Widget _photoPending() {
