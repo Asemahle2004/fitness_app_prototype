@@ -1,3 +1,5 @@
+import 'deload_workout_engine.dart';
+import 'strength_adaptation_cache.dart';
 import 'superset_engine.dart';
 import 'workout_engine.dart';
 
@@ -41,103 +43,42 @@ class SafetyAdaptation {
 
 /// Conservative exercise modification for a fitness app.
 ///
-/// This engine does not diagnose an injury. It separates two jobs:
-/// 1. warning signs that should pause app-directed training, and
-/// 2. ordinary pain/limitations where clearly provocative movements can be
-///    removed while comfortable, unaffected training remains available.
-///
-/// The rules are intentionally conservative and are based on the evidence
-/// catalogue stored in Supabase (ACSM, APTA/ChoosePT, NHS and NICE).
+/// Safety filtering always happens before fatigue/deload adaptation. LeanIt
+/// never keeps a contraindicated movement merely because it is in a deload.
 class SafetyEngine {
   static const Map<String, List<String>> _restrictedKeywords = {
     'Knee': [
-      'run',
-      'sprint',
-      'jump',
-      'lunge',
-      'squat',
-      'leg press',
-      'step-up',
-      'step up',
-      'burpee',
-      'mountain climber',
-      'high knees',
-      'skipping',
+      'run', 'sprint', 'jump', 'lunge', 'squat', 'leg press', 'step-up',
+      'step up', 'burpee', 'mountain climber', 'high knees', 'skipping',
     ],
     'Ankle / Foot': [
-      'run',
-      'sprint',
-      'jump',
-      'skipping',
-      'calf raise',
-      'burpee',
-      'high knees',
+      'run', 'sprint', 'jump', 'skipping', 'calf raise', 'burpee', 'high knees',
     ],
     'Hip': [
-      'run',
-      'sprint',
-      'jump',
-      'deep squat',
-      'lunge',
-      'split squat',
-      'hip thrust',
-      'heavy hinge',
+      'run', 'sprint', 'jump', 'deep squat', 'lunge', 'split squat',
+      'hip thrust', 'heavy hinge',
     ],
     'Shoulder': [
-      'shoulder press',
-      'overhead',
-      'bench press',
-      'chest press',
-      'push-up',
-      'push up',
-      'pulldown',
-      'pull-up',
-      'pull up',
-      'row',
-      'lateral raise',
+      'shoulder press', 'overhead', 'bench press', 'chest press', 'push-up',
+      'push up', 'pulldown', 'pull-up', 'pull up', 'row', 'lateral raise',
       'face pull',
     ],
     'Elbow': [
-      'curl',
-      'triceps',
-      'press',
-      'push-up',
-      'push up',
-      'row',
-      'pull',
+      'curl', 'triceps', 'press', 'push-up', 'push up', 'row', 'pull',
     ],
     'Wrist / Hand': [
-      'push-up',
-      'push up',
-      'plank',
-      'dumbbell',
-      'barbell',
-      'kettlebell',
-      'curl',
-      'row',
-      'press',
-      'carry',
+      'push-up', 'push up', 'plank', 'dumbbell', 'barbell', 'kettlebell',
+      'curl', 'row', 'press', 'carry',
     ],
     'Back': [
-      'deadlift',
-      'good morning',
-      'heavy hinge',
-      'back extension',
-      'loaded carry',
-      'burpee',
-      'jump',
+      'deadlift', 'good morning', 'heavy hinge', 'back extension',
+      'loaded carry', 'burpee', 'jump',
     ],
     'Neck': [
-      'overhead',
-      'shoulder press',
-      'shrug',
-      'loaded carry',
+      'overhead', 'shoulder press', 'shrug', 'loaded carry',
     ],
     'Other': [
-      'sprint',
-      'jump',
-      'burpee',
-      'max effort',
+      'sprint', 'jump', 'burpee', 'max effort',
     ],
   };
 
@@ -152,6 +93,9 @@ class SafetyEngine {
     'Neck': ['ACSM'],
     'Other': ['ACSM'],
   };
+
+  static GeneratedWorkout _applyFatigue(GeneratedWorkout workout) =>
+      DeloadWorkoutEngine.adapt(workout, StrengthAdaptationCache.current);
 
   static SafetyAdaptation adaptWorkout(
     GeneratedWorkout baseWorkout,
@@ -175,7 +119,7 @@ class SafetyEngine {
 
     if (!profile.hasLimitation || profile.affectedAreas.isEmpty) {
       return SafetyAdaptation(
-        workout: baseWorkout,
+        workout: _applyFatigue(baseWorkout),
         status: SafetyStatus.normal,
         blocksTraining: false,
         title: 'Standard training plan',
@@ -207,8 +151,6 @@ class SafetyEngine {
       kept.add(replacement);
     }
 
-    // A modified session should still have something useful to do. If several
-    // limitations collide, keep the safest available low-load/core options.
     if (kept.isEmpty) {
       kept.addAll([
         _p(
@@ -234,11 +176,13 @@ class SafetyEngine {
       evidence.addAll(_evidenceByArea[area] ?? const ['ACSM']);
     }
 
+    final safetyWorkout = GeneratedWorkout(
+      title: '${baseWorkout.title} — Modified',
+      exercises: SupersetEngine.normalize(kept),
+    );
+
     return SafetyAdaptation(
-      workout: GeneratedWorkout(
-        title: '${baseWorkout.title} — Modified',
-        exercises: SupersetEngine.normalize(kept),
-      ),
+      workout: _applyFatigue(safetyWorkout),
       status: SafetyStatus.modified,
       blocksTraining: false,
       title: 'Modified for: $areas',
@@ -367,7 +311,12 @@ class SafetyEngine {
           target: 'Mobility',
           metricLabel: 'TARGET',
         ),
-        _p('Dead Bug', sets: 2, reps: '6–10 each side', target: 'Core control'),
+        _p(
+          'Dead Bug',
+          sets: 2,
+          reps: '6–10 each side',
+          target: 'Core control',
+        ),
       ]);
     }
 
@@ -377,7 +326,12 @@ class SafetyEngine {
         _p('Dead Bug', reps: '8–12 each side', target: 'Core'),
         _p('Bird Dog', reps: '8–12 each side', target: 'Core, back'),
         _p('Push-Up', reps: '8–15', target: 'Chest, triceps'),
-        _p('Seated Dumbbell Curl', reps: '10–15', equipment: 'Dumbbells', target: 'Biceps'),
+        _p(
+          'Seated Dumbbell Curl',
+          reps: '10–15',
+          equipment: 'Dumbbells',
+          target: 'Biceps',
+        ),
       ]);
     }
 
@@ -395,7 +349,6 @@ class SafetyEngine {
       ]);
     }
 
-    // General low-complexity backups. Safety filters run over these too.
     result.addAll([
       _p('Dead Bug', reps: '8–12 each side', target: 'Core'),
       _p('Bird Dog', reps: '8–12 each side', target: 'Core, back'),
