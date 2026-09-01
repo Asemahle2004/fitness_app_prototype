@@ -3,6 +3,9 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'exercise_favorite_store.dart';
+import 'exercise_preference_ranking.dart';
+import 'exercise_preference_store.dart';
 import 'exercise_repository.dart';
 import 'profile_service.dart';
 import 'safety_engine.dart';
@@ -49,10 +52,16 @@ class ExerciseSwapService {
   final SupabaseClient client;
   final ExerciseRepository repository;
   final ProfileService profiles;
+  final ExercisePreferenceStore preferences;
+  final ExerciseFavoriteStore favorites;
 
   ExerciseSwapService(this.client)
       : repository = ExerciseRepository(client),
-        profiles = ProfileService(client);
+        profiles = ProfileService(client),
+        preferences = ExercisePreferenceStore(
+          userScope: client.auth.currentUser?.id ?? 'guest',
+        ),
+        favorites = ExerciseFavoriteStore(client);
 
   Future<ExerciseSwapResult> suggestions({
     required ExercisePrescription current,
@@ -96,6 +105,8 @@ class ExerciseSwapService {
     final preferredLocations = _strings(profileMap?['training_locations']).toSet();
     final homeEquipment = _strings(profileMap?['home_equipment']).toSet();
     final gymAccess = profileMap?['gym_access']?.toString();
+    final preferenceSnapshot = await preferences.load();
+    final favoriteIds = await favorites.load();
 
     final ranked = <ExerciseSwapSuggestion>[];
     for (final candidate in catalogue) {
@@ -137,13 +148,21 @@ class ExerciseSwapService {
         homeEquipment: homeEquipment,
         gymAccess: gymAccess,
       );
-      if (scoring.score <= 0) continue;
+      final preference = ExercisePreferenceRanking.adjustment(
+        record: preferenceSnapshot.forExercise(candidate.name),
+        favorite: favoriteIds.contains(candidate.id),
+      );
+      final finalScore = scoring.score + preference.scoreDelta;
+      if (finalScore <= 0) continue;
 
       ranked.add(
         ExerciseSwapSuggestion(
           exercise: _prescriptionFromCandidate(current, candidate),
-          score: scoring.score,
-          reasons: scoring.reasons,
+          score: finalScore,
+          reasons: <String>{
+            ...scoring.reasons,
+            ...preference.reasons,
+          }.take(3).toList(growable: false),
         ),
       );
     }
@@ -162,12 +181,29 @@ class ExerciseSwapService {
     );
   }
 
+  Future<void> rejectSuggestion(String exerciseName) async {
+    try {
+      await preferences.recordRejectedSuggestion(exerciseName);
+    } catch (_) {
+      // Preference memory is helpful but must never block a workout.
+    }
+  }
+
   Future<void> saveSwap({
     required String workoutTitle,
     required String fromExercise,
     required String toExercise,
     required ExerciseSwapReason reason,
   }) async {
+    try {
+      if (reason == ExerciseSwapReason.dislike) {
+        await preferences.recordDislike(fromExercise);
+      }
+      await preferences.recordSelectedAlternative(toExercise);
+    } catch (_) {
+      // Learned preferences remain local-first and optional.
+    }
+
     final now = DateTime.now();
     final record = {
       'workout_title': workoutTitle,
