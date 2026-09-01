@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -117,6 +118,7 @@ class ReadinessRecord {
 class TrainingStore {
   static const _workoutsKey = 'leaneat_workout_history_v2';
   static const _readinessKey = 'leaneat_readiness_history_v2';
+  static final ValueNotifier<int> revision = ValueNotifier<int>(0);
 
   static SupabaseClient? get _clientOrNull {
     try {
@@ -133,6 +135,7 @@ class TrainingStore {
       _workoutsKey,
       [jsonEncode(record.toJson()), ...existing].take(200).toList(),
     );
+    revision.value += 1;
 
     final client = _clientOrNull;
     final user = client?.auth.currentUser;
@@ -171,6 +174,7 @@ class TrainingStore {
       _workoutsKey,
       updated.map((record) => jsonEncode(record.toJson())).toList(growable: false),
     );
+    revision.value += 1;
   }
 
   static Future<List<WorkoutRecord>> loadWorkouts() async {
@@ -197,8 +201,8 @@ class TrainingStore {
         for (final record in cloud) {
           final signature = _workoutSignature(record);
           final existing = merged[signature];
-          if (existing == null || existing.perceivedEffort == null) {
-            merged[signature] = existing?.perceivedEffort != null ? existing! : record;
+          if (existing == null) {
+            merged[signature] = record;
           }
         }
       } catch (_) {}
@@ -243,6 +247,7 @@ class TrainingStore {
       _readinessKey,
       [jsonEncode(record.toJson()), ...existing].take(90).toList(),
     );
+    revision.value += 1;
 
     final client = _clientOrNull;
     final user = client?.auth.currentUser;
