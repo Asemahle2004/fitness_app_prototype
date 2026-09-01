@@ -1,0 +1,35 @@
+name: Apply programme exercise image lookup fix
+
+on:
+  push:
+    branches:
+      - fix/programme-exercise-images
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[programme-image-lookup-applied]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/programme-exercise-images
+          fetch-depth: 0
+
+      - name: Apply image lookup patch
+        run: python tools/apply_programme_image_lookup_patch.py
+
+      - name: Commit generated fix
+        run: |
+          if git diff --quiet; then
+            echo "No programme image lookup changes required."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/exercise_repository.dart
+          git commit -m "Resolve programme exercise image name variants [programme-image-lookup-applied]"
+          git push origin HEAD:fix/programme-exercise-images
