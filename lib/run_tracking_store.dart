@@ -87,6 +87,19 @@ class RunRecord {
       };
 
   factory RunRecord.fromJson(Map<String, dynamic> json) {
+    final source = json['source'] as String? ?? 'manual';
+    final notes = json['notes'] as String?;
+    final storedPlanId = json['guided_plan_id'] as String?;
+    final inferredPlanId = source == 'gps_guided'
+        ? _legacyGuidedPlanId(notes)
+        : null;
+    final planId = storedPlanId ?? inferredPlanId;
+    final storedPlanned = (json['guided_planned_seconds'] as num?)?.round();
+    final planned = storedPlanned ?? _legacyPlannedSeconds(planId);
+    final storedCompleted = json['guided_completed'] as bool?;
+    final completed = storedCompleted ??
+        (source == 'gps_guided' ? _legacyCompletion(notes) : null);
+
     return RunRecord(
       id: json['id'] as String? ??
           'run_${DateTime.now().microsecondsSinceEpoch}',
@@ -94,14 +107,41 @@ class RunRecord {
           DateTime.now(),
       durationSeconds: (json['duration_seconds'] as num?)?.round() ?? 0,
       distanceMeters: (json['distance_meters'] as num?)?.toDouble() ?? 0,
-      source: json['source'] as String? ?? 'manual',
-      notes: json['notes'] as String?,
-      guidedPlanId: json['guided_plan_id'] as String?,
-      guidedPlannedSeconds:
-          (json['guided_planned_seconds'] as num?)?.round(),
-      guidedCompleted: json['guided_completed'] as bool?,
+      source: source,
+      notes: notes,
+      guidedPlanId: planId,
+      guidedPlannedSeconds: planned,
+      guidedCompleted: completed,
       perceivedEffort: json['perceived_effort'] as String?,
     );
+  }
+
+  static String? _legacyGuidedPlanId(String? notes) {
+    final lower = notes?.toLowerCase() ?? '';
+    if (lower.contains('run-walk foundation')) return 'run_walk_foundation';
+    if (lower.contains('steady intervals')) return 'steady_intervals';
+    if (lower.contains('speed intervals')) return 'speed_intervals';
+    return null;
+  }
+
+  static int? _legacyPlannedSeconds(String? planId) {
+    switch (planId) {
+      case 'run_walk_foundation':
+        return 1800;
+      case 'steady_intervals':
+        return 1680;
+      case 'speed_intervals':
+        return 1860;
+      default:
+        return null;
+    }
+  }
+
+  static bool? _legacyCompletion(String? notes) {
+    final lower = notes?.toLowerCase() ?? '';
+    if (lower.contains('ended early')) return false;
+    if (lower.contains('• completed') || lower.endsWith('completed')) return true;
+    return null;
   }
 }
 
