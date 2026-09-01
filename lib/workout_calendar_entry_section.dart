@@ -52,7 +52,7 @@ class WorkoutCalendarEntrySection extends StatelessWidget {
                     ),
                     SizedBox(height: 3),
                     Text(
-                      'See trained days, rest days and workout details.',
+                      'See training, recovery, rest days and session details.',
                       style: TextStyle(
                         fontSize: 12,
                         color: Color(0xFF627D98),
@@ -69,14 +69,21 @@ class WorkoutCalendarEntrySection extends StatelessWidget {
             runSpacing: 8,
             children: [
               Text(
-                '${stats.trainedDays} trained days this month',
+                '${stats.trainedDays} trained days',
                 style: const TextStyle(
                   fontWeight: FontWeight.w700,
                   color: Color(0xFF486581),
                 ),
               ),
               Text(
-                '$latestStreak-day latest streak',
+                '${stats.recoveryDays} recovery days',
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF486581),
+                ),
+              ),
+              Text(
+                '$latestStreak-day training streak',
                 style: const TextStyle(
                   fontWeight: FontWeight.w700,
                   color: Color(0xFF486581),

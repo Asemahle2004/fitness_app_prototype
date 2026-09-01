@@ -2,6 +2,7 @@ import 'training_store.dart';
 
 class WorkoutCalendarMonthStats {
   final int trainedDays;
+  final int recoveryDays;
   final int restDays;
   final int workouts;
   final int totalDurationSeconds;
@@ -10,6 +11,7 @@ class WorkoutCalendarMonthStats {
 
   const WorkoutCalendarMonthStats({
     required this.trainedDays,
+    required this.recoveryDays,
     required this.restDays,
     required this.workouts,
     required this.totalDurationSeconds,
@@ -24,6 +26,9 @@ class WorkoutCalendarEngine {
 
   static bool sameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
+
+  static bool isRecoveryRecord(WorkoutRecord record) =>
+      record.title.toLowerCase().startsWith('recovery day');
 
   static int daysInMonth(DateTime month) =>
       DateTime(month.year, month.month + 1, 0).day;
@@ -78,14 +83,24 @@ class WorkoutCalendarEngine {
         })
         .toList(growable: false);
 
-    final trainedDays = monthRecords
-        .map((record) => dateOnly(record.completedAt))
-        .toSet()
-        .length;
+    final grouped = groupByDay(monthRecords);
+    final trainedDaySet = <DateTime>{};
+    final recoveryOnlyDaySet = <DateTime>{};
+
+    for (final entry in grouped.entries) {
+      final hasTraining = entry.value.any((record) => !isRecoveryRecord(record));
+      if (hasTraining) {
+        trainedDaySet.add(entry.key);
+      } else if (entry.value.isNotEmpty) {
+        recoveryOnlyDaySet.add(entry.key);
+      }
+    }
+
     final elapsedDays = effectiveLast.isBefore(first)
         ? 0
         : effectiveLast.difference(first).inDays + 1;
-    final restDays = (elapsedDays - trainedDays).clamp(0, elapsedDays).toInt();
+    final activeDays = trainedDaySet.length + recoveryOnlyDaySet.length;
+    final restDays = (elapsedDays - activeDays).clamp(0, elapsedDays).toInt();
     final totalDurationSeconds = monthRecords.fold<int>(
       0,
       (sum, record) => sum + record.durationSeconds,
@@ -97,18 +112,20 @@ class WorkoutCalendarEngine {
     final elapsedWeeks = elapsedDays == 0 ? 0.0 : elapsedDays / 7.0;
 
     return WorkoutCalendarMonthStats(
-      trainedDays: trainedDays,
+      trainedDays: trainedDaySet.length,
+      recoveryDays: recoveryOnlyDaySet.length,
       restDays: restDays,
       workouts: monthRecords.length,
       totalDurationSeconds: totalDurationSeconds,
       completedSets: completedSets,
       trainingDaysPerWeek:
-          elapsedWeeks == 0 ? 0 : trainedDays / elapsedWeeks,
+          elapsedWeeks == 0 ? 0 : trainedDaySet.length / elapsedWeeks,
     );
   }
 
   static int longestStreak(Iterable<WorkoutRecord> records) {
     final days = records
+        .where((record) => !isRecoveryRecord(record))
         .map((record) => dateOnly(record.completedAt))
         .toSet()
         .toList(growable: false)
@@ -130,6 +147,7 @@ class WorkoutCalendarEngine {
 
   static int latestStreak(Iterable<WorkoutRecord> records) {
     final days = records
+        .where((record) => !isRecoveryRecord(record))
         .map((record) => dateOnly(record.completedAt))
         .toSet()
         .toList(growable: false)
