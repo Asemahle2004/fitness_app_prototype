@@ -14,6 +14,7 @@ import 'personal_record_engine.dart';
 import 'progression_engine.dart';
 import 'session_phase_flow_screen.dart';
 import 'session_preparation_engine.dart';
+import 'short_on_time_engine.dart';
 import 'superset_engine.dart';
 import 'training_store.dart';
 import 'workout_editor_screen.dart';
@@ -75,6 +76,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
   bool _openingCoolDown = false;
   bool _equipmentPromptOpen = false;
   bool _equipmentAdapting = false;
+  bool _timeAdjusting = false;
   bool _finishedWithoutExercises = false;
   int? _nextIndexAfterRest;
   int _activeRestSeconds = 0;
@@ -95,6 +97,7 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
   bool _performanceLoading = false;
   double? _activeSetWeightKg;
   String? _lastSavedSummary;
+  ShortOnTimePlan? _shortOnTimePlan;
 
   bool get isComplete =>
       _finishedWithoutExercises ||
@@ -120,6 +123,13 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
       currentSet == 1 &&
       completedSets == 0 &&
       !inDropSet;
+
+  bool get canAdjustTime =>
+      phase == LivePhase.ready &&
+      !inDropSet &&
+      !_finishingSet &&
+      !_equipmentAdapting &&
+      _sessionExercises.isNotEmpty;
 
   GeneratedWorkout get _currentSessionWorkout => GeneratedWorkout(
         title: widget.workout.title,
@@ -674,6 +684,233 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
   void _skipSet() {
     _tickTimer?.cancel();
     unawaited(_finishSet());
+  }
+
+  Future<int?> _chooseMinutesRemaining() async {
+    final controller = TextEditingController();
+    final result = await showModalBottomSheet<int>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            4,
+            20,
+            20 + MediaQuery.viewInsetsOf(sheetContext).bottom,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'How much time do you have left?',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF102A43),
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'LeanIt will keep the highest-priority remaining work, reduce lower-priority volume first, and avoid duplicating work you already completed.',
+                style: TextStyle(
+                  height: 1.4,
+                  color: Color(0xFF627D98),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: const [10, 15, 20, 25, 30]
+                    .map(
+                      (minutes) => ActionChip(
+                        label: Text('$minutes min'),
+                        onPressed: () => Navigator.pop(sheetContext, minutes),
+                      ),
+                    )
+                    .toList(),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: controller,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Other time',
+                  hintText: 'e.g. 18 minutes',
+                  suffixText: 'min',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () {
+                    final value = int.tryParse(controller.text.trim());
+                    if (value == null || value < 5 || value > 90) {
+                      ScaffoldMessenger.of(sheetContext).showSnackBar(
+                        const SnackBar(
+                          content: Text('Enter a time between 5 and 90 minutes.'),
+                        ),
+                      );
+                      return;
+                    }
+                    Navigator.pop(sheetContext, value);
+                  },
+                  child: const Text('ADAPT MY REMAINING WORKOUT'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    controller.dispose();
+    return result;
+  }
+
+  Future<void> _openShortOnTimeFlow() async {
+    if (!canAdjustTime || _timeAdjusting) return;
+    final minutes = await _chooseMinutesRemaining();
+    if (!mounted || minutes == null) return;
+
+    setState(() => _timeAdjusting = true);
+    final plan = ShortOnTimeEngine.adapt(
+      exercises: _sessionExercises,
+      completedSets: _completedSetsByExercise,
+      currentIndex: currentIndex,
+      minutesRemaining: minutes,
+    );
+
+    if (!mounted) return;
+    if (!plan.changed) {
+      setState(() {
+        _timeAdjusting = false;
+        _shortOnTimePlan = plan;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            plan.estimatedMinutes <= plan.requestedMinutes
+                ? 'Your remaining workout already fits in about ${plan.estimatedMinutes} minutes.'
+                : 'The shortest useful version is about ${plan.estimatedMinutes} minutes.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _sessionExercises
+        ..clear()
+        ..addAll(plan.exercises);
+      _completedSetsByExercise = List<int>.from(plan.completedSets);
+      currentIndex = plan.currentIndex.clamp(0, _sessionExercises.length - 1);
+      completedExercises = 0;
+      for (var i = 0; i < _sessionExercises.length; i += 1) {
+        if (_completedSetsByExercise[i] >= _sessionExercises[i].sets) {
+          completedExercises += 1;
+        }
+      }
+      _shortOnTimePlan = plan;
+      _timeAdjusting = false;
+      _resetCurrentExerciseState(
+        setNumber: _completedSetsByExercise[currentIndex] + 1,
+      );
+    });
+    unawaited(_loadPreviousPerformance(currentExercise.name));
+
+    final removed = plan.removedExercises.take(3).join(', ');
+    final reduced = plan.reducedExercises
+        .where((name) => !plan.removedExercises.contains(name))
+        .take(3)
+        .join(', ');
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.schedule_rounded, color: Color(0xFF176B87)),
+        title: const Text('Workout adapted'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              plan.estimatedMinutes <= plan.requestedMinutes
+                  ? 'LeanIt rebuilt the remaining session to finish in about ${plan.estimatedMinutes} minutes.'
+                  : 'LeanIt made the session as short as practical while protecting the current priority work. Estimated finish: about ${plan.estimatedMinutes} minutes.',
+            ),
+            const SizedBox(height: 12),
+            Text('${plan.originalRemainingSets} → ${plan.adaptedRemainingSets} remaining sets.'),
+            if (reduced.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text('Reduced volume: $reduced'),
+            ],
+            if (removed.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text('Removed today: $removed'),
+            ],
+            const SizedBox(height: 10),
+            const Text(
+              'This is a today-only adjustment. It does not change your normal programme prescription.',
+              style: TextStyle(fontSize: 12, color: Color(0xFF627D98)),
+            ),
+          ],
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('CONTINUE WORKOUT'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _shortOnTimeBanner() {
+    final plan = _shortOnTimePlan;
+    if (plan == null) return const SizedBox.shrink();
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF7E6),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFFFD58A)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.schedule_rounded, color: Color(0xFF9A6700)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Time-adjusted session • ${plan.requestedMinutes} min available',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF102A43),
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  plan.summary,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    height: 1.4,
+                    color: Color(0xFF627D98),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _openWorkoutEditor() async {
@@ -1544,6 +1781,10 @@ FilledButton(
                       _preparationPreviewCard(),
                       const SizedBox(height: 12),
                     ],
+                    if (_shortOnTimePlan != null) ...[
+                      _shortOnTimeBanner(),
+                      const SizedBox(height: 12),
+                    ],
                     _previousPerformanceCard(),
                     if (!inDropSet && _progressionSuggestion != null) ...[
                       const SizedBox(height: 10),
@@ -1615,6 +1856,31 @@ FilledButton(
               ),
             ),
           if (canChangeTrainingEnvironment) const SizedBox(height: 10),
+          if (canAdjustTime)
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _timeAdjusting || _swapping || _editingWorkout
+                    ? null
+                    : _openShortOnTimeFlow,
+                icon: _timeAdjusting
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.schedule_rounded),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(50),
+                ),
+                label: Text(
+                  _timeAdjusting
+                      ? 'REBUILDING SESSION…'
+                      : 'SHORT ON TIME • ADAPT SESSION',
+                ),
+              ),
+            ),
+          if (canAdjustTime) const SizedBox(height: 10),
           if (phase == LivePhase.ready && currentSet == 1 && !inDropSet) ...[
             SizedBox(
               width: double.infinity,
