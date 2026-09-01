@@ -1,5 +1,6 @@
 import 'adaptive_strength_engine.dart';
 import 'exercise_performance_store.dart';
+import 'strength_adaptation_cache.dart';
 import 'workout_engine.dart';
 
 class ProgressionSuggestion {
@@ -25,13 +26,14 @@ class ProgressionEngine {
     StrengthAdaptationRecommendation? adaptation,
   }) {
     if (previous == null) return null;
+    final resolvedAdaptation = adaptation ?? StrengthAdaptationCache.current;
 
-    if (adaptation != null &&
-        adaptation.action != StrengthAdaptationAction.progress) {
+    if (resolvedAdaptation != null &&
+        resolvedAdaptation.action != StrengthAdaptationAction.progress) {
       return _protectedTarget(
         exercise: exercise,
         previous: previous,
-        adaptation: adaptation,
+        adaptation: resolvedAdaptation,
       );
     }
 
