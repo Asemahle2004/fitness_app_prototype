@@ -91,6 +91,55 @@ void main() {
     expect(bodyweightScore.reasons, contains('no equipment needed'));
   });
 
+  test('equipment-unavailable filter rejects the same unavailable setup', () {
+    final dumbbellFloorPress = _candidate(
+      name: 'Dumbbell Floor Press',
+      equipment: 'dumbbell',
+      primaryMuscles: ['chest'],
+    );
+    final machinePress = _candidate(
+      name: 'Machine Chest Press',
+      equipment: 'machine',
+      primaryMuscles: ['chest'],
+    );
+
+    expect(
+      ExerciseSwapRanker.isSuitableCandidate(
+        current: current,
+        candidate: dumbbellFloorPress,
+        reason: ExerciseSwapReason.equipmentUnavailable,
+      ),
+      isFalse,
+    );
+    expect(
+      ExerciseSwapRanker.isSuitableCandidate(
+        current: current,
+        candidate: machinePress,
+        reason: ExerciseSwapReason.equipmentUnavailable,
+      ),
+      isTrue,
+    );
+  });
+
+  test('replacement must preserve the primary programme target', () {
+    final reverseFly = _candidate(
+      name: 'Reverse Fly',
+      equipment: 'body only',
+      primaryMuscles: ['shoulders'],
+      force: 'pull',
+      mechanic: 'isolation',
+    );
+
+    expect(
+      ExerciseSwapRanker.isSuitableCandidate(
+        current: current,
+        candidate: reverseFly,
+        reason: ExerciseSwapReason.equipmentUnavailable,
+      ),
+      isFalse,
+    );
+  });
+
   test('too difficult prefers beginner candidate over expert candidate', () {
     final beginner = _candidate(
       name: 'Pushups',
