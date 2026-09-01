@@ -311,7 +311,13 @@ class ExerciseRepository {
       'leanit_free_exercise_catalogue_v1';
   static const String _freeCatalogueCacheTimeKey =
       'leanit_free_exercise_catalogue_cached_at_v1';
+  static const String _mergedCatalogueCacheKey =
+      'leanit_exercise_catalogue_offline_v1';
+  static const String _mergedCatalogueCacheTimeKey =
+      'leanit_exercise_catalogue_offline_cached_at_v1';
   static const Duration _freeCatalogueCacheMaxAge = Duration(days: 7);
+  static const Duration _mergedCatalogueCacheMaxAge = Duration(days: 7);
+  static const Duration _networkCatalogueTimeout = Duration(seconds: 4);
   static Future<List<OnlineExercise>>? _freeCatalogueCache;
 
   const ExerciseRepository(
@@ -399,10 +405,32 @@ class ExerciseRepository {
 
   Future<OnlineExercise?> fetchByName(String name) async {
     final exerciseId = idFromName(name);
+
+    // The merged metadata cache is checked before any network request. This is
+    // what lets CachedNetworkImage find an already-cached photo while offline.
+    final cached = await _readMergedCatalogueCache();
+    final lower = name.trim().toLowerCase();
+    for (final exercise in cached) {
+      if (exercise.id == exerciseId || exercise.name.toLowerCase() == lower) {
+        return exercise;
+      }
+    }
+    final cachedClosest = closestNameMatch(name, cached);
+    if (cachedClosest != null) return cachedClosest;
+
+    // Every WorkoutEngine movement exists in the compact built-in catalogue,
+    // so a first-ever offline programme never waits for the network merely to
+    // resolve its exercise metadata.
+    for (final offlineName in offlineProgrammeExerciseNames) {
+      final exercise = _offlineProgrammeExercise(offlineName);
+      if (exercise.id == exerciseId || exercise.name.toLowerCase() == lower) {
+        return exercise;
+      }
+    }
+
     final byId = await fetchById(exerciseId);
     if (byId != null) return byId;
 
-    final lower = name.trim().toLowerCase();
     final catalogue = await _freeCatalogueSafely();
     for (final exercise in catalogue) {
       if (exercise.name.toLowerCase() == lower) return exercise;
@@ -417,13 +445,23 @@ class ExerciseRepository {
   }
 
   Future<OnlineExercise?> fetchById(String exerciseId) async {
+    final cached = await _readMergedCatalogueCache();
+    for (final exercise in cached) {
+      if (exercise.id == exerciseId) return exercise;
+    }
+    for (final name in offlineProgrammeExerciseNames) {
+      final exercise = _offlineProgrammeExercise(name);
+      if (exercise.id == exerciseId) return exercise;
+    }
+
     try {
       final data = await client
           .from('exercises')
           .select()
           .eq('id', exerciseId)
           .eq('is_active', true)
-          .maybeSingle();
+          .maybeSingle()
+          .timeout(_networkCatalogueTimeout);
 
       if (data != null) return OnlineExercise.fromMap(data);
     } catch (_) {
@@ -504,41 +542,119 @@ class ExerciseRepository {
   }
 
   Future<List<OnlineExercise>> fetchAll() async {
-    final merged = <String, OnlineExercise>{};
+    final cached = await _readMergedCatalogueCache();
+    if (cached.isNotEmpty) {
+      final merged = <String, OnlineExercise>{};
+      for (final name in offlineProgrammeExerciseNames) {
+        final exercise = _offlineProgrammeExercise(name);
+        merged[exercise.id] = exercise;
+      }
+      for (final exercise in cached) {
+        merged[exercise.id] = exercise;
+      }
 
-    // These tiny built-in records make every programme exercise available in
-    // the library even before the first catalogue download.
+      if (await _mergedCacheIsStale()) {
+        unawaited(_refreshMergedCatalogueCache());
+      }
+
+      final result = merged.values.toList(growable: false)
+        ..sort((a, b) =>
+            a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      return result;
+    }
+
+    return _refreshMergedCatalogueCache();
+  }
+
+  Future<List<OnlineExercise>> _refreshMergedCatalogueCache() async {
+    final merged = <String, OnlineExercise>{};
     for (final name in offlineProgrammeExerciseNames) {
       final exercise = _offlineProgrammeExercise(name);
       merged[exercise.id] = exercise;
     }
 
-    final freeCatalogue = await _freeCatalogueSafely();
-    for (final exercise in freeCatalogue.take(freeCatalogueLimit)) {
+    final results = await Future.wait<List<OnlineExercise>>([
+      _freeCatalogueSafely().timeout(
+        _networkCatalogueTimeout,
+        onTimeout: () => const <OnlineExercise>[],
+      ),
+      _fetchCloudExercisesSafely(),
+    ]);
+
+    for (final exercise in results[0].take(freeCatalogueLimit)) {
+      merged[exercise.id] = exercise;
+    }
+    for (final exercise in results[1]) {
+      // LeanIt/Supabase records win over free and built-in records.
       merged[exercise.id] = exercise;
     }
 
+    final result = merged.values.toList(growable: false)
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    await _writeMergedCatalogueCache(result);
+    return result;
+  }
+
+  Future<List<OnlineExercise>> _fetchCloudExercisesSafely() async {
     try {
       final data = await client
           .from('exercises')
           .select()
           .eq('is_active', true)
-          .order('name');
-
-      for (final row in (data as List).whereType<Map<String, dynamic>>()) {
-        final exercise = OnlineExercise.fromMap(row);
-        // LeanIt/Supabase records win over the public fallback record.
-        merged[exercise.id] = exercise;
-      }
+          .order('name')
+          .timeout(_networkCatalogueTimeout);
+      return (data as List)
+          .whereType<Map<String, dynamic>>()
+          .map(OnlineExercise.fromMap)
+          .toList(growable: false);
     } catch (_) {
-      // The cached/free catalogue remains available as the fallback.
+      return const <OnlineExercise>[];
     }
+  }
 
-    final result = merged.values.toList(growable: false)
-      ..sort(
-        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
-      );
-    return result;
+  Future<List<OnlineExercise>> _readMergedCatalogueCache() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_mergedCatalogueCacheKey);
+    if (raw == null || raw.trim().isEmpty) return const <OnlineExercise>[];
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return const <OnlineExercise>[];
+      final exercises = <OnlineExercise>[];
+      for (final item in decoded) {
+        if (item is Map) {
+          exercises.add(
+            OnlineExercise.fromMap(Map<String, dynamic>.from(item)),
+          );
+        }
+      }
+      return exercises;
+    } catch (_) {
+      return const <OnlineExercise>[];
+    }
+  }
+
+  Future<void> _writeMergedCatalogueCache(
+    List<OnlineExercise> exercises,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    // Metadata is compact JSON. Images remain on-demand and are cached at a
+    // reduced resolution by ExerciseMedia, keeping total device storage low.
+    await prefs.setString(
+      _mergedCatalogueCacheKey,
+      jsonEncode(exercises.map((exercise) => exercise.toCacheMap()).toList()),
+    );
+    await prefs.setInt(
+      _mergedCatalogueCacheTimeKey,
+      DateTime.now().millisecondsSinceEpoch,
+    );
+  }
+
+  Future<bool> _mergedCacheIsStale() async {
+    final prefs = await SharedPreferences.getInstance();
+    final millis = prefs.getInt(_mergedCatalogueCacheTimeKey) ?? 0;
+    if (millis == 0) return true;
+    final cachedAt = DateTime.fromMillisecondsSinceEpoch(millis);
+    return DateTime.now().difference(cachedAt) > _mergedCatalogueCacheMaxAge;
   }
 
   Future<List<OnlineExercise>> searchByName(String query) async {
@@ -690,7 +806,7 @@ class ExerciseRepository {
   Future<List<OnlineExercise>> _fetchFreeCatalogueFromNetwork() async {
     final response = await http
         .get(Uri.parse(_freeCatalogueUrl))
-        .timeout(const Duration(seconds: 12));
+        .timeout(_networkCatalogueTimeout);
 
     if (response.statusCode != 200) {
       throw StateError(
