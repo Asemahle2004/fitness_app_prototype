@@ -17,7 +17,7 @@ class LeanItPreferences {
   final bool automaticSync;
 
   const LeanItPreferences({
-    this.workoutRemindersEnabled = true,
+    this.workoutRemindersEnabled = false,
     this.reminderHour = 18,
     this.reminderMinute = 0,
     this.reminderWeekdays = const {1, 2, 3, 4, 5},
@@ -91,7 +91,7 @@ class LeanItPreferences {
 
     return LeanItPreferences(
       workoutRemindersEnabled:
-          json['workout_reminders_enabled'] as bool? ?? true,
+          json['workout_reminders_enabled'] as bool? ?? false,
       reminderHour: ((json['reminder_hour'] as num?)?.toInt() ?? 18).clamp(0, 23),
       reminderMinute:
           ((json['reminder_minute'] as num?)?.toInt() ?? 0).clamp(0, 59),
