@@ -22,7 +22,8 @@ class LeanItNotificationService {
         final local = await FlutterTimezone.getLocalTimezone();
         tz.setLocalLocation(tz.getLocation(local.identifier));
       } catch (_) {
-        // timezone defaults to UTC if the platform timezone is unavailable.
+        // The in-app reminder planner remains available even when a platform
+        // cannot report a named local timezone.
       }
 
       const android = AndroidInitializationSettings('ic_stat_leanit');
@@ -46,13 +47,9 @@ class LeanItNotificationService {
 
   static Future<bool> requestPermission() async {
     if (kIsWeb) {
-      try {
-        final web = _plugin.resolvePlatformSpecificImplementation<
-            WebFlutterLocalNotificationsPlugin>();
-        return await web?.requestNotificationsPermission() ?? false;
-      } catch (_) {
-        return false;
-      }
+      // Web keeps the in-app reminder planner. Browsers do not provide the
+      // same reliable future recurring delivery semantics as mobile here.
+      return true;
     }
 
     await initialize();
@@ -73,7 +70,7 @@ class LeanItNotificationService {
           .resolvePlatformSpecificImplementation<
               MacOSFlutterLocalNotificationsPlugin>()
           ?.requestPermissions(alert: true, badge: true, sound: true);
-      return macos ?? false;
+      return macos ?? true;
     } catch (error) {
       await AppErrorStore.record('Notification permission', error);
       return false;
@@ -90,6 +87,11 @@ class LeanItNotificationService {
         await _plugin.cancel(id: id);
       }
       if (!preferences.workoutRemindersEnabled) return;
+
+      // Permission is requested only after the member explicitly enables the
+      // reminder toggle. Merely opening LeanIt never triggers the prompt.
+      final granted = await requestPermission();
+      if (!granted) return;
 
       const details = NotificationDetails(
         android: AndroidNotificationDetails(
