@@ -7,6 +7,8 @@ import 'drop_set_engine.dart';
 import 'exercise_media.dart';
 import 'exercise_performance_store.dart';
 import 'exercise_swap_service.dart';
+import 'personal_record_celebration.dart';
+import 'personal_record_engine.dart';
 import 'progression_engine.dart';
 import 'session_phase_flow_screen.dart';
 import 'session_preparation_engine.dart';
@@ -458,6 +460,28 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
     int? dropNumber,
   }) async {
     try {
+      final previous = isDropSet
+          ? const <ExerciseSetPerformance>[]
+          : await _performanceStore.loadForExercise(
+              exerciseName,
+              limit: 2000,
+            );
+      final candidate = ExerciseSetPerformance(
+        workoutTitle: widget.workout.title,
+        exerciseName: exerciseName,
+        setNumber: setNumber,
+        reps: reps,
+        weightKg: weightKg,
+        durationSeconds: durationSeconds,
+        setType: isDropSet ? 'drop' : 'normal',
+        dropNumber: isDropSet ? dropNumber : null,
+        performedAt: DateTime.now(),
+      );
+      final achievements = PersonalRecordEngine.newSetRecords(
+        current: candidate,
+        previous: previous,
+      );
+
       await _performanceStore.saveSet(
         workoutTitle: widget.workout.title,
         exerciseName: exerciseName,
@@ -468,8 +492,13 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
         isDropSet: isDropSet,
         dropNumber: dropNumber,
       );
+
+      if (mounted && achievements.isNotEmpty) {
+        PersonalRecordCelebration.showSnackBar(context, achievements);
+      }
     } catch (_) {
-      // Workout flow continues if local/cloud logging has a temporary issue.
+      // Workout flow continues if local/cloud logging or PR detection has a
+      // temporary issue. The active session must never depend on analytics.
     }
   }
 
