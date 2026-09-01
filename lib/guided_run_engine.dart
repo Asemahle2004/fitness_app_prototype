@@ -53,7 +53,7 @@ class GuidedRunProgress {
   double get stepProgress {
     final current = step;
     if (current == null || current.durationSeconds <= 0) return 1;
-    return (secondsIntoStep / current.durationSeconds).clamp(0, 1);
+    return (secondsIntoStep / current.durationSeconds).clamp(0, 1).toDouble();
   }
 }
 
