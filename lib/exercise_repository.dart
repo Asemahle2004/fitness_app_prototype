@@ -325,6 +325,76 @@ class ExerciseRepository {
     return value;
   }
 
+  static OnlineExercise? closestNameMatch(
+    String requestedName,
+    Iterable<OnlineExercise> catalogue,
+  ) {
+    final requestedTokens = _nameTokens(requestedName);
+    if (requestedTokens.length < 2) return null;
+
+    final requestedNormalized = requestedTokens.join(' ');
+    OnlineExercise? best;
+    int? bestScore;
+
+    for (final exercise in catalogue) {
+      final candidateTokens = _nameTokens(exercise.name);
+      if (candidateTokens.length < requestedTokens.length) continue;
+
+      final candidateSet = candidateTokens.toSet();
+      if (!requestedTokens.every(candidateSet.contains)) continue;
+      if (!_tokensAppearInOrder(requestedTokens, candidateTokens)) continue;
+
+      final extraTokens = candidateTokens.length - requestedTokens.length;
+      // Only allow small naming qualifiers such as "Medium Grip",
+      // "Military" or "Seated". This prevents a generic programme name
+      // from being paired with a materially different movement.
+      if (extraTokens > 3) continue;
+
+      final candidateNormalized = candidateTokens.join(' ');
+      final prefixPenalty = candidateNormalized.startsWith(requestedNormalized)
+          ? 0
+          : 100;
+      final score = prefixPenalty +
+          (extraTokens * 10) +
+          (candidateNormalized.length - requestedNormalized.length).abs();
+
+      if (bestScore == null || score < bestScore) {
+        best = exercise;
+        bestScore = score;
+      }
+    }
+
+    return best;
+  }
+
+  static List<String> _nameTokens(String value) {
+    return value
+        .toLowerCase()
+        .replaceAll('&', ' and ')
+        .split(RegExp(r'[^a-z0-9]+'))
+        .where((token) => token.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  static bool _tokensAppearInOrder(
+    List<String> requested,
+    List<String> candidate,
+  ) {
+    var cursor = -1;
+    for (final token in requested) {
+      var found = -1;
+      for (var index = cursor + 1; index < candidate.length; index += 1) {
+        if (candidate[index] == token) {
+          found = index;
+          break;
+        }
+      }
+      if (found == -1) return false;
+      cursor = found;
+    }
+    return true;
+  }
+
   Future<OnlineExercise?> fetchByName(String name) async {
     final exerciseId = idFromName(name);
     final byId = await fetchById(exerciseId);
@@ -335,7 +405,13 @@ class ExerciseRepository {
     for (final exercise in catalogue) {
       if (exercise.name.toLowerCase() == lower) return exercise;
     }
-    return null;
+
+    // Programme Engine intentionally uses clean, user-facing exercise names.
+    // The reference catalogue sometimes adds a small qualifier to the same
+    // movement (for example "Barbell Bench Press - Medium Grip"). Resolve
+    // those safe naming variants so programme cards can show their existing
+    // reference media instead of a placeholder.
+    return closestNameMatch(name, catalogue);
   }
 
   Future<OnlineExercise?> fetchById(String exerciseId) async {
