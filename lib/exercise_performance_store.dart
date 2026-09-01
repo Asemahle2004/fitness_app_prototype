@@ -248,13 +248,20 @@ class ExercisePerformanceStore {
     return records.take(limit).toList(growable: false);
   }
 
+  /// Returns the complete local-first set history LeanIt currently retains.
+  /// The local cache stores up to 2,000 sets; cloud history is still limited to
+  /// the most recent 500 rows until the backend exposes a paginated sync path.
+  Future<List<ExerciseSetPerformance>> loadAll() {
+    return loadRecent(limit: _maxLocalRecords);
+  }
+
   Future<List<ExerciseSetPerformance>> loadForExercise(
     String exerciseName, {
     int limit = 50,
   }) async {
     final lower = exerciseName.trim().toLowerCase();
-    final recent = await loadRecent(limit: 500);
-    return recent
+    final all = await loadAll();
+    return all
         .where((record) => record.exerciseName.toLowerCase() == lower)
         .take(limit)
         .toList(growable: false);
