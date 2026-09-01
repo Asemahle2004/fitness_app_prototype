@@ -33,10 +33,12 @@ enum LivePhase { ready, active, rest }
 
 class LiveWorkoutScreen extends StatefulWidget {
   final GeneratedWorkout workout;
+  final String? trainingEnvironment;
 
   const LiveWorkoutScreen({
     super.key,
     required this.workout,
+    this.trainingEnvironment,
   });
 
   @override
@@ -111,6 +113,13 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
       currentSet == 1 &&
       completedSets == 0 &&
       !_preparationCompleted;
+
+  bool get canChangeTrainingEnvironment =>
+      phase == LivePhase.ready &&
+      currentIndex == 0 &&
+      currentSet == 1 &&
+      completedSets == 0 &&
+      !inDropSet;
 
   GeneratedWorkout get _currentSessionWorkout => GeneratedWorkout(
         title: widget.workout.title,
@@ -710,6 +719,12 @@ class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
   }
 
   String _environmentForWorkout() {
+    final explicit = widget.trainingEnvironment?.toLowerCase();
+    if (explicit != null) {
+      if (explicit.contains('home')) return 'Home';
+      if (explicit.contains('outside')) return 'Outside';
+      if (explicit.contains('gym')) return 'Gym';
+    }
     final title = widget.workout.title.toLowerCase();
     if (title.contains('home')) return 'Home';
     if (title.contains('outside')) return 'Outside';
@@ -1582,6 +1597,24 @@ FilledButton(
               ),
             ),
           if (canEditStructure) const SizedBox(height: 10),
+          if (canChangeTrainingEnvironment)
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _editingWorkout || _swapping || _equipmentAdapting
+                    ? null
+                    : () => Navigator.pop(
+                          context,
+                          'changeTrainingEnvironment',
+                        ),
+                icon: const Icon(Icons.location_on_outlined),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(50),
+                ),
+                label: Text('CHANGE TRAINING LOCATION • $_trainingEnvironment'),
+              ),
+            ),
+          if (canChangeTrainingEnvironment) const SizedBox(height: 10),
           if (phase == LivePhase.ready && currentSet == 1 && !inDropSet) ...[
             SizedBox(
               width: double.infinity,
