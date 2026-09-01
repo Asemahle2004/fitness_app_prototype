@@ -1504,68 +1504,158 @@ FilledButton(
       return;
     }
 
+    final rejectedInSheet = <String>{};
     final selected = await showModalBottomSheet<ExerciseSwapSuggestion>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
       builder: (sheetContext) {
-        return DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.72,
-          minChildSize: 0.45,
-          maxChildSize: 0.92,
-          builder: (context, controller) {
-            return ListView(
-              controller: controller,
-              padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-              children: [
-                Text(
-                  'Replace ${currentExercise.name}',
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF102A43),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Reason: ${reason.label}',
-                  style: const TextStyle(color: Color(0xFF627D98)),
-                ),
-                const SizedBox(height: 14),
-                ...result.suggestions.map(
-                  (suggestion) => Card(
-                    margin: const EdgeInsets.only(bottom: 10),
-                    child: ListTile(
-                      contentPadding: const EdgeInsets.all(14),
-                      leading: const CircleAvatar(
-                        backgroundColor: Color(0xFFE5F4F8),
-                        child: Icon(
-                          Icons.swap_horiz_rounded,
-                          color: Color(0xFF176B87),
-                        ),
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            final visibleSuggestions = result.suggestions
+                .where(
+                  (suggestion) =>
+                      !rejectedInSheet.contains(suggestion.exercise.name),
+                )
+                .toList(growable: false);
+            return DraggableScrollableSheet(
+              expand: false,
+              initialChildSize: 0.72,
+              minChildSize: 0.45,
+              maxChildSize: 0.92,
+              builder: (context, controller) {
+                return ListView(
+                  controller: controller,
+                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+                  children: [
+                    Text(
+                      'Replace ${currentExercise.name}',
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF102A43),
                       ),
-                      title: Text(
-                        suggestion.exercise.name,
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      subtitle: Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: Text(
-                          [
-                            suggestion.exercise.target,
-                            suggestion.exercise.equipment,
-                            if (suggestion.reasons.isNotEmpty)
-                              suggestion.reasons.join(' • '),
-                          ].join('\n'),
-                        ),
-                      ),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () => Navigator.pop(sheetContext, suggestion),
                     ),
-                  ),
-                ),
-              ],
+                    const SizedBox(height: 6),
+                    Text(
+                      'Reason: ${reason.label}',
+                      style: const TextStyle(color: Color(0xFF627D98)),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'LeanIt now learns from favourites, alternatives you choose and options you reject.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        height: 1.4,
+                        color: Color(0xFF829AB1),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    if (visibleSuggestions.isEmpty)
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF0F4F8),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: const Text(
+                          'You rejected all current suggestions. Close this sheet and LeanIt will use that preference memory the next time alternatives are ranked.',
+                          style: TextStyle(
+                            height: 1.4,
+                            color: Color(0xFF486581),
+                          ),
+                        ),
+                      )
+                    else
+                      ...visibleSuggestions.map(
+                        (suggestion) => Card(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(14, 14, 10, 10),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const CircleAvatar(
+                                      backgroundColor: Color(0xFFE5F4F8),
+                                      child: Icon(
+                                        Icons.swap_horiz_rounded,
+                                        color: Color(0xFF176B87),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            suggestion.exercise.name,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 16,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 6),
+                                          Text(
+                                            [
+                                              suggestion.exercise.target,
+                                              suggestion.exercise.equipment,
+                                              if (suggestion.reasons.isNotEmpty)
+                                                suggestion.reasons.join(' • '),
+                                            ].join('\n'),
+                                            style: const TextStyle(
+                                              color: Color(0xFF627D98),
+                                              height: 1.35,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: FilledButton.icon(
+                                        onPressed: () => Navigator.pop(
+                                          sheetContext,
+                                          suggestion,
+                                        ),
+                                        icon: const Icon(Icons.check_rounded),
+                                        label: const Text('USE THIS'),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    TextButton.icon(
+                                      onPressed: () async {
+                                        await _swapService.rejectSuggestion(
+                                          suggestion.exercise.name,
+                                        );
+                                        if (!mounted) return;
+                                        setSheetState(() {
+                                          rejectedInSheet
+                                              .add(suggestion.exercise.name);
+                                        });
+                                      },
+                                      icon: const Icon(
+                                        Icons.thumb_down_alt_outlined,
+                                      ),
+                                      label: const Text('NOT FOR ME'),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
             );
           },
         );

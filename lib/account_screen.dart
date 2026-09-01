@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'lean_eat_theme.dart';
 import 'profile_service.dart';
 import 'training_profile_edit_screen.dart';
+import 'exercise_preferences_screen.dart';
 
 class LeanEatAccountScreen extends StatefulWidget {
   const LeanEatAccountScreen({super.key});
@@ -261,6 +262,39 @@ class _LeanEatAccountScreenState extends State<LeanEatAccountScreen> {
                     ],
                   ),
                 ),
+              const SizedBox(height: 16),
+              _section(
+                title: 'Exercise preferences',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'See what LeanIt has learned from your favourites, chosen alternatives and rejected exercises. You can forget any learned choice at any time.',
+                      style: TextStyle(
+                        height: 1.45,
+                        color: Color(0xFF66766D),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  const ExercisePreferencesScreen(),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.psychology_alt_outlined),
+                        label: const Text('MANAGE EXERCISE PREFERENCES'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
               const SizedBox(height: 16),
               _section(
                 title: 'LeanEat Analyzer',
