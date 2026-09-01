@@ -1,4 +1,4 @@
-name: Run guided running integration
+name: Run guided running completion fix
 
 on:
   push:
@@ -9,23 +9,23 @@ permissions:
 
 jobs:
   integrate:
-    if: ${{ !contains(github.event.head_commit.message, '[guided-running-patch]') }}
+    if: ${{ !contains(github.event.head_commit.message, '[guided-running-fix]') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: feature/guided-running-intervals
-      - name: Apply guided running integration
-        run: python tools/patch_guided_running.py
-      - name: Commit integration
+      - name: Lock completed guided run state
+        run: python tools/fix_guided_completion.py
+      - name: Commit fix
         shell: bash
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add lib/live_run_screen.dart lib/run_tracking_screen.dart
+          git add lib/live_run_screen.dart
           if git diff --cached --quiet; then
-            echo "No integration changes required"
+            echo "No completion fix required"
           else
-            git commit -m "[guided-running-patch] Integrate guided running intervals"
+            git commit -m "[guided-running-fix] Lock completed guided run state"
             git push origin feature/guided-running-intervals
           fi
