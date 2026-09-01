@@ -8,6 +8,7 @@ import 'lean_eat_theme.dart';
 import 'progress_screen.dart';
 import 'readiness_screen.dart';
 import 'today_dashboard.dart';
+import 'training_settings_screen.dart';
 
 class LeanEatMemberShell extends StatefulWidget {
   final Widget programmeHome;
@@ -57,6 +58,13 @@ class _LeanEatMemberShellState extends State<LeanEatMemberShell> {
     });
   }
 
+  void _openTrainingSettings() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const TrainingSettingsScreen()),
+    );
+  }
+
   static const _destinations = <NavigationDestination>[
     NavigationDestination(
       icon: Icon(Icons.home_outlined),
@@ -98,6 +106,13 @@ class _LeanEatMemberShellState extends State<LeanEatMemberShell> {
         index: _index,
         children: _pages,
       ),
+      floatingActionButton: _index == 5
+          ? FloatingActionButton.extended(
+              onPressed: _openTrainingSettings,
+              icon: const Icon(Icons.tune_rounded),
+              label: const Text('SETTINGS & TOOLS'),
+            )
+          : null,
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: _selectDestination,
