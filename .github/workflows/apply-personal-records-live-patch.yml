@@ -1,0 +1,35 @@
+name: Apply personal records live integration
+
+on:
+  push:
+    branches:
+      - feature/personal-records
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[personal-records-live-applied]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/personal-records
+          fetch-depth: 0
+
+      - name: Apply personal record live patch
+        run: python tools/apply_personal_records_live_patch.py
+
+      - name: Commit live integration
+        run: |
+          if git diff --quiet; then
+            echo "No personal record live changes required."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/live_workout_screen.dart
+          git commit -m "Celebrate live workout personal records [personal-records-live-applied]"
+          git push origin HEAD:feature/personal-records
