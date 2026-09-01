@@ -45,10 +45,55 @@ void main() {
     );
 
     expect(stats.trainedDays, 2);
+    expect(stats.recoveryDays, 0);
     expect(stats.restDays, 3);
     expect(stats.workouts, 3);
     expect(stats.totalDurationSeconds, 5400);
     expect(stats.completedSets, 30);
+  });
+
+  test('recovery-only day is separate from trained and rest days', () {
+    final records = [
+      workout(DateTime(2026, 8, 1)),
+      workout(
+        DateTime(2026, 8, 2),
+        title: 'Recovery Day — Home',
+        duration: 720,
+        sets: 0,
+      ),
+    ];
+
+    final stats = WorkoutCalendarEngine.monthStats(
+      records,
+      DateTime(2026, 8),
+      today: DateTime(2026, 8, 3),
+    );
+
+    expect(stats.trainedDays, 1);
+    expect(stats.recoveryDays, 1);
+    expect(stats.restDays, 1);
+  });
+
+  test('normal training takes precedence when recovery and training share a day', () {
+    final records = [
+      workout(
+        DateTime(2026, 8, 2, 8),
+        title: 'Recovery Day — Home',
+        duration: 600,
+        sets: 0,
+      ),
+      workout(DateTime(2026, 8, 2, 18), title: 'Full Body Strength'),
+    ];
+
+    final stats = WorkoutCalendarEngine.monthStats(
+      records,
+      DateTime(2026, 8),
+      today: DateTime(2026, 8, 2, 20),
+    );
+
+    expect(stats.trainedDays, 1);
+    expect(stats.recoveryDays, 0);
+    expect(stats.restDays, 1);
   });
 
   test('past month counts all untrained days as rest days', () {
@@ -59,7 +104,26 @@ void main() {
     );
 
     expect(stats.trainedDays, 2);
+    expect(stats.recoveryDays, 0);
     expect(stats.restDays, 29);
+  });
+
+  test('recovery days do not extend training streaks', () {
+    final records = [
+      workout(DateTime(2026, 7, 30)),
+      workout(DateTime(2026, 7, 31)),
+      workout(
+        DateTime(2026, 8, 1),
+        title: 'Recovery Day — Outside',
+        duration: 600,
+        sets: 0,
+      ),
+      workout(DateTime(2026, 8, 2)),
+      workout(DateTime(2026, 8, 3)),
+    ];
+
+    expect(WorkoutCalendarEngine.longestStreak(records), 2);
+    expect(WorkoutCalendarEngine.latestStreak(records), 2);
   });
 
   test('streak calculations cross month boundaries', () {
