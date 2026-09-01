@@ -5,6 +5,8 @@ import 'body_progress_entry_section.dart';
 import 'exercise_performance_store.dart';
 import 'exercise_progress_entry_section.dart';
 import 'personal_records_entry_section.dart';
+import 'progress_insights_engine.dart';
+import 'progress_insights_section.dart';
 import 'run_tracking_entry_section.dart';
 import 'training_store.dart';
 import 'workout_calendar_entry_section.dart';
@@ -29,7 +31,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
     final workoutsFuture = TrainingStore.loadWorkouts();
     final setsFuture = ExercisePerformanceStore(
       Supabase.instance.client,
-    ).loadRecent(limit: 150);
+    ).loadAll();
 
     return _ProgressData(
       workouts: await workoutsFuture,
@@ -111,6 +113,10 @@ class _ProgressScreenState extends State<ProgressScreen> {
             0,
             (sum, set) => sum + set.volumeKg,
           );
+          final insights = ProgressInsightsEngine.analyse(
+            workouts: records,
+            sets: sets,
+          );
 
           return RefreshIndicator(
             onRefresh: _refresh,
@@ -170,6 +176,8 @@ class _ProgressScreenState extends State<ProgressScreen> {
                     ),
                   ],
                 ),
+                const SizedBox(height: 28),
+                ProgressInsightsSection(insights: insights),
                 const SizedBox(height: 28),
                 const BodyProgressEntrySection(),
                 const SizedBox(height: 28),
