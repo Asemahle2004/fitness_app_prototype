@@ -1,0 +1,36 @@
+name: Apply exercise curation patch
+
+on:
+  push:
+    branches:
+      - feature/curated-exercise-library
+    paths:
+      - tools/apply_exercise_curation_patch.py
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/curated-exercise-library
+          fetch-depth: 0
+
+      - name: Apply curation patch
+        run: python tools/apply_exercise_curation_patch.py
+
+      - name: Commit generated changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/exercise_repository.dart lib/exercise_curation.dart test/exercise_curation_test.dart docs/EXERCISE_CURATION.md
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Curate programme-ready exercise catalogue"
+            git push origin HEAD:feature/curated-exercise-library
+          fi
