@@ -58,6 +58,7 @@ class ExerciseSwapService {
     required ExercisePrescription current,
     required List<ExercisePrescription> sessionExercises,
     required ExerciseSwapReason reason,
+    Set<String> unavailableEquipment = const {},
   }) async {
     final profileMap = await _profileMapSafely();
     final safety = _safetyProfile(profileMap);
@@ -123,6 +124,7 @@ class ExerciseSwapService {
         current: current,
         candidate: candidate,
         reason: reason,
+        unavailableEquipment: unavailableEquipment,
       )) {
         continue;
       }
@@ -131,6 +133,7 @@ class ExerciseSwapService {
         current: current,
         candidate: candidate,
         reason: reason,
+        unavailableEquipment: unavailableEquipment,
         homeEquipment: homeEquipment,
         gymAccess: gymAccess,
       );
@@ -254,6 +257,7 @@ class ExerciseSwapRanker {
     required ExercisePrescription current,
     required OnlineExercise candidate,
     required ExerciseSwapReason reason,
+    Set<String> unavailableEquipment = const {},
   }) {
     final firstTarget = current.target
         .split(RegExp(r'[,;+]'))
@@ -286,10 +290,16 @@ class ExerciseSwapRanker {
       final candidateEquipment = _normaliseEquipment(
         '${candidate.equipment.join(' ')} ${candidate.name}',
       );
-      final unavailableOverlap =
-          candidateEquipment.intersection(currentEquipment)
-            ..remove('bodyweight');
-      if (unavailableOverlap.isNotEmpty) return false;
+      if (unavailableEquipment.isNotEmpty) {
+        final blocked = candidateEquipment.intersection(unavailableEquipment)
+          ..remove('bodyweight');
+        if (blocked.isNotEmpty) return false;
+      } else {
+        final unavailableOverlap =
+            candidateEquipment.intersection(currentEquipment)
+              ..remove('bodyweight');
+        if (unavailableOverlap.isNotEmpty) return false;
+      }
     }
 
     return true;
@@ -299,6 +309,7 @@ class ExerciseSwapRanker {
     required ExercisePrescription current,
     required OnlineExercise candidate,
     required ExerciseSwapReason reason,
+    Set<String> unavailableEquipment = const {},
     Set<String> homeEquipment = const {},
     String? gymAccess,
   }) {
@@ -336,7 +347,12 @@ class ExerciseSwapRanker {
         score += 14;
         why.add('no equipment needed');
       }
-      if (candidateEquipment.intersection(currentEquipment).isEmpty) {
+      if (unavailableEquipment.isNotEmpty) {
+        if (candidateEquipment.intersection(unavailableEquipment).isEmpty) {
+          score += 8;
+          why.add('avoids unavailable equipment');
+        }
+      } else if (candidateEquipment.intersection(currentEquipment).isEmpty) {
         score += 8;
         why.add('different equipment');
       }
@@ -441,6 +457,10 @@ class ExerciseSwapRanker {
     if (text.contains('kettlebell')) result.add('kettlebell');
     if (text.contains('bench')) result.add('bench');
     if (text.contains('cable')) result.add('cable');
+    if (text.contains('leg press')) result.add('leg press machine');
+    if (text.contains('lat pulldown')) result.add('lat pulldown machine');
+    if (text.contains('treadmill')) result.add('treadmill');
+    if (text.contains('bike') || text.contains('cycle')) result.add('bike');
     if (text.contains('machine')) result.add('machine');
     if (text.contains('pull-up') || text.contains('pull up')) result.add('pullupbar');
     if (text.contains('medicine ball')) result.add('medicineball');
