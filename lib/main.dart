@@ -15,6 +15,7 @@ import 'profile_service.dart';
 import 'account_screen.dart';
 import 'member_shell.dart';
 import 'training_environment_engine.dart';
+import 'weekly_plan_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 Future<void> main() async {
@@ -3713,19 +3714,30 @@ class ProgrammeReadyScreen extends StatelessWidget {
                   height: 60,
                   child: ElevatedButton(
                     onPressed: () {
-                      final firstSession = programme.sessions.first;
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => WorkoutDetailScreen(
-                            session: firstSession,
-                            locations: locations,
-                            homeEquipment: homeEquipment,
-                            gymAccess: gymAccess,
-                            hasLimitation: hasLimitation,
-                            affectedAreas: Set<String>.from(affectedAreas),
-                            limitationNotes: limitationNotes,
-                            warningSigns: Set<String>.from(warningSigns),
+                          builder: (context) => WeeklyPlanScreen(
+                            baseSessions: programme.sessions,
+                            availableDays: availableDays,
+                            userScope: supabase.auth.currentUser?.id ?? 'guest',
+                            onOpenSession: (weeklyContext, session) {
+                              Navigator.push(
+                                weeklyContext,
+                                MaterialPageRoute(
+                                  builder: (_) => WorkoutDetailScreen(
+                                    session: session,
+                                    locations: locations,
+                                    homeEquipment: homeEquipment,
+                                    gymAccess: gymAccess,
+                                    hasLimitation: hasLimitation,
+                                    affectedAreas: Set<String>.from(affectedAreas),
+                                    limitationNotes: limitationNotes,
+                                    warningSigns: Set<String>.from(warningSigns),
+                                  ),
+                                ),
+                              );
+                            },
                           ),
                         ),
                       );
@@ -3739,7 +3751,7 @@ class ProgrammeReadyScreen extends StatelessWidget {
                       ),
                     ),
                     child: const Text(
-                      'VIEW MY WORKOUTS',
+                      'OPEN WEEKLY PLAN',
                       style: TextStyle(
                         fontSize: 17,
                         fontWeight: FontWeight.bold,
