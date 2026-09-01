@@ -66,10 +66,15 @@ class ProgrammeStore {
       goal: _string(profile, 'main_goal', 'Improve General Fitness'),
       experience: _string(profile, 'experience', 'Beginner'),
       fitnessLevel: _string(profile, 'fitness_level', 'Low'),
+      activityLevel: _string(profile, 'activity_level', 'Moderately active'),
       availableDays: _stringSet(profile['available_days']),
       locations: _stringSet(profile['training_locations']),
+      homeEquipment: _stringSet(profile['home_equipment']),
+      gymAccess: _string(profile, 'gym_access', 'Standard gym'),
       sessionLength: _string(profile, 'session_length', '45 min'),
       trainingTime: _string(profile, 'training_time', 'Flexible'),
+      hasLimitation: profile['has_limitation'] == true,
+      affectedAreas: _stringSet(profile['affected_areas']),
     );
   }
 
@@ -78,6 +83,7 @@ class ProgrammeStore {
       'goal': _string(profile, 'main_goal', 'Improve General Fitness'),
       'experience': _string(profile, 'experience', 'Beginner'),
       'fitnessLevel': _string(profile, 'fitness_level', 'Low'),
+      'activityLevel': _string(profile, 'activity_level', 'Moderately active'),
       'days': _sortedStrings(profile['available_days']),
       'locations': _sortedStrings(profile['training_locations']),
       'homeEquipment': _sortedStrings(profile['home_equipment']),
@@ -99,6 +105,9 @@ class ProgrammeStore {
             'title': session.title,
             'location': session.location,
             'duration': session.duration,
+            'focus': session.focus,
+            'intensity': session.intensity,
+            'personalisation_note': session.personalisationNote,
           },
         )
         .toList(growable: false);
@@ -116,6 +125,10 @@ class ProgrammeStore {
           title: map['title']?.toString() ?? 'Workout',
           location: map['location']?.toString() ?? 'Flexible',
           duration: map['duration']?.toString() ?? '45 min',
+          focus: map['focus']?.toString() ?? 'Balanced training',
+          intensity: map['intensity']?.toString() ?? 'Moderate',
+          personalisationNote:
+              map['personalisation_note']?.toString() ?? '',
         ),
       );
     }
