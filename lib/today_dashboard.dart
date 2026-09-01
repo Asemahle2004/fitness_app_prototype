@@ -186,7 +186,7 @@ class _LeanEatTodayDashboardState extends State<LeanEatTodayDashboard> {
     });
 
     if (!completed) return stored;
-    await _store.completeSession(activeIndex);
+    await _store.completeSession(activeIndex, profile: profile);
     return (await _store.loadCurrent()) ?? stored;
   }
 
@@ -212,6 +212,43 @@ class _LeanEatTodayDashboardState extends State<LeanEatTodayDashboard> {
         builder: (_) => LiveWorkoutScreen(workout: adaptation.workout),
       ),
     );
+    if (mounted) await _load();
+  }
+
+  Future<void> _skipCurrentSession() async {
+    final stored = _stored;
+    final profile = _profile;
+    if (stored == null ||
+        profile == null ||
+        stored.currentSession == null ||
+        stored.activeSessionIndex != null) {
+      return;
+    }
+
+    final index = stored.safeCurrentSessionIndex;
+    final session = stored.programme.sessions[index];
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Skip this session?'),
+        content: Text(
+          'LeanIt will record ${session.title} as skipped and use that information when it builds your next training week.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('CANCEL'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('SKIP SESSION'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    await _store.skipSession(index, profile: profile);
     if (mounted) await _load();
   }
 
@@ -529,6 +566,30 @@ class _LeanEatTodayDashboardState extends State<LeanEatTodayDashboard> {
                           ),
                         ),
                       ),
+                      if (activeIndex == null) ...[
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: _skipCurrentSession,
+                            icon: const Icon(Icons.skip_next_rounded),
+                            label: const Text(
+                              'SKIP THIS SESSION',
+                              style: TextStyle(fontWeight: FontWeight.w900),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        const Text(
+                          'Skipping is recorded so LeanIt can adjust next week instead of assuming the plan was completed.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 11,
+                            height: 1.35,
+                            color: Color(0xFF829AB1),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
