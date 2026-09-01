@@ -247,7 +247,7 @@ class _LiveRunScreenState extends State<LiveRunScreen> {
   }
 
   Future<void> _resume() async {
-    if (!_running || !_paused) return;
+    if (!_running || !_paused || _guidedCompleteHandled) return;
     setState(() {
       _paused = false;
       _gpsStatus = 'Reconnecting GPS...';
@@ -538,11 +538,23 @@ class _LiveRunScreenState extends State<LiveRunScreen> {
                   children: [
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: _paused ? _resume : _pause,
+                        onPressed: _guidedCompleteHandled
+                            ? null
+                            : (_paused ? _resume : _pause),
                         icon: Icon(
-                          _paused ? Icons.play_arrow_rounded : Icons.pause_rounded,
+                          _guidedCompleteHandled
+                              ? Icons.check_rounded
+                              : _paused
+                                  ? Icons.play_arrow_rounded
+                                  : Icons.pause_rounded,
                         ),
-                        label: Text(_paused ? 'RESUME' : 'PAUSE'),
+                        label: Text(
+                          _guidedCompleteHandled
+                              ? 'COMPLETE'
+                              : _paused
+                                  ? 'RESUME'
+                                  : 'PAUSE',
+                        ),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.white,
                           side: const BorderSide(color: Colors.white54),
