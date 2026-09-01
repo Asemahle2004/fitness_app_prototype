@@ -1,0 +1,35 @@
+name: Apply programme personalisation v2 integration
+
+on:
+  push:
+    branches:
+      - feature/programme-personalisation-v2
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[programme-personalisation-v2-applied]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/programme-personalisation-v2
+          fetch-depth: 0
+
+      - name: Apply programme personalisation patch
+        run: python tools/apply_programme_personalisation_v2_patch.py
+
+      - name: Commit integration
+        run: |
+          if git diff --quiet; then
+            echo "No programme personalisation changes required."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/programme_engine.dart lib/today_dashboard.dart
+          git commit -m "Surface deeper programme personalisation [programme-personalisation-v2-applied]"
+          git push origin HEAD:feature/programme-personalisation-v2
