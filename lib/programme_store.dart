@@ -1,10 +1,16 @@
 import 'dart:convert';
 
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'adaptive_programme_engine.dart';
+import 'adaptive_strength_engine.dart';
+import 'app_health.dart';
+import 'periodization_engine.dart';
 import 'programme_adaptation_store.dart';
 import 'programme_engine.dart';
+import 'strength_adaptation_cache.dart';
+import 'sync_queue.dart';
 
 class StoredProgramme {
   final GeneratedProgramme programme;
@@ -48,6 +54,12 @@ class ProgrammeStore {
 
   const ProgrammeStore(this.client);
 
+  static const _cachePrefix = 'leanit_current_programme_cache_v1';
+
+  String get _scope => client.auth.currentUser?.id ?? 'guest';
+  String get _cacheKey =>
+      '${_cachePrefix}_${_scope.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_')}';
+
   static Set<String> _stringSet(dynamic value) {
     if (value is! List) return <String>{};
     return value.whereType<String>().toSet();
@@ -58,7 +70,11 @@ class ProgrammeStore {
     return items;
   }
 
-  static String _string(Map<String, dynamic> profile, String key, String fallback) {
+  static String _string(
+    Map<String, dynamic> profile,
+    String key,
+    String fallback,
+  ) {
     final value = profile[key]?.toString().trim();
     return value == null || value.isEmpty ? fallback : value;
   }
@@ -99,7 +115,9 @@ class ProgrammeStore {
     return jsonEncode(snapshot);
   }
 
-  static List<Map<String, dynamic>> _sessionsToJson(List<PlannedSession> sessions) {
+  static List<Map<String, dynamic>> _sessionsToJson(
+    List<PlannedSession> sessions,
+  ) {
     return sessions
         .map(
           (session) => <String, dynamic>{
@@ -149,8 +167,89 @@ class ProgrammeStore {
       currentWeek: (row['current_week'] as num?)?.toInt() ?? 1,
       currentSessionIndex: (row['current_session_index'] as num?)?.toInt() ?? 0,
       activeSessionIndex: (row['active_session_index'] as num?)?.toInt(),
-      activeStartedAt: DateTime.tryParse(row['active_started_at']?.toString() ?? ''),
+      activeStartedAt:
+          DateTime.tryParse(row['active_started_at']?.toString() ?? ''),
     );
+  }
+
+  static Map<String, dynamic> _rowForStored(
+    StoredProgramme value, {
+    String? userId,
+  }) => <String, dynamic>{
+        if (userId != null) 'user_id': userId,
+        'profile_signature': value.profileSignature,
+        'goal': value.programme.goal,
+        'structure': value.programme.structure,
+        'explanation': value.programme.explanation,
+        'sessions': _sessionsToJson(value.programme.sessions),
+        'current_week': value.currentWeek,
+        'current_session_index': value.currentSessionIndex,
+        'active_session_index': value.activeSessionIndex,
+        'active_started_at': value.activeStartedAt?.toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
+      };
+
+  Future<void> _cache(StoredProgramme value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_cacheKey, jsonEncode(_rowForStored(value)));
+    _updatePeriodization(value.currentWeek);
+  }
+
+  Future<StoredProgramme?> _cached() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_cacheKey);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return null;
+      final value = _fromRow(Map<String, dynamic>.from(decoded));
+      _updatePeriodization(value.currentWeek);
+      return value;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static void _updatePeriodization(int week) {
+    final strength = StrengthAdaptationCache.current;
+    PeriodizationEngine.setCurrent(
+      PeriodizationEngine.forWeek(
+        programmeWeek: week,
+        forceRecovery: strength?.action == StrengthAdaptationAction.deload,
+        consolidate: strength?.action == StrengthAdaptationAction.reduce ||
+            strength?.action == StrengthAdaptationAction.maintain,
+        progressionSupported:
+            strength?.action == StrengthAdaptationAction.progress,
+      ),
+    );
+  }
+
+  Future<void> _writeCloudOrQueue(
+    Map<String, dynamic> row, {
+    String action = 'upsert',
+  }) async {
+    final user = client.auth.currentUser;
+    if (user == null) return;
+    final payload = <String, dynamic>{...row, 'user_id': user.id};
+    try {
+      if (action == 'upsert') {
+        await client.from('current_programmes').upsert(payload);
+      } else {
+        await client
+            .from('current_programmes')
+            .update(payload..remove('user_id'))
+            .eq('user_id', user.id);
+      }
+    } catch (error) {
+      await SyncQueueStore(userScope: user.id).enqueue(
+        table: 'current_programmes',
+        action: 'upsert',
+        data: payload,
+        matchColumn: 'user_id',
+        matchValue: user.id,
+      );
+      await AppErrorStore.record('Programme cloud sync', error);
+    }
   }
 
   Future<StoredProgramme> ensureForProfile(Map<String, dynamic> profile) async {
@@ -159,7 +258,7 @@ class ProgrammeStore {
     final user = client.auth.currentUser;
 
     if (user == null) {
-      return StoredProgramme(
+      final local = StoredProgramme(
         programme: generated,
         profileSignature: signature,
         currentWeek: 1,
@@ -167,45 +266,32 @@ class ProgrammeStore {
         activeSessionIndex: null,
         activeStartedAt: null,
       );
+      await _cache(local);
+      return local;
     }
 
-    final existing = await client
-        .from('current_programmes')
-        .select()
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-    if (existing != null) {
-      final stored = _fromRow(Map<String, dynamic>.from(existing));
-      if (stored.profileSignature == signature && stored.hasSessions) {
-        await ProgrammeAdaptationStore.ensureWeek(stored.currentWeek);
-        return stored;
-      }
+    StoredProgramme? existing;
+    try {
+      final row = await client
+          .from('current_programmes')
+          .select()
+          .eq('user_id', user.id)
+          .maybeSingle();
+      if (row != null) existing = _fromRow(Map<String, dynamic>.from(row));
+    } catch (error) {
+      existing = await _cached();
+      await AppErrorStore.record('Programme load', error);
     }
 
-    final now = DateTime.now().toIso8601String();
-    final row = <String, dynamic>{
-      'user_id': user.id,
-      'profile_signature': signature,
-      'goal': generated.goal,
-      'structure': generated.structure,
-      'explanation': generated.explanation,
-      'sessions': _sessionsToJson(generated.sessions),
-      'current_week': 1,
-      'current_session_index': 0,
-      'active_session_index': null,
-      'active_started_at': null,
-      'updated_at': now,
-    };
+    if (existing != null &&
+        existing.profileSignature == signature &&
+        existing.hasSessions) {
+      await ProgrammeAdaptationStore.ensureWeek(existing.currentWeek);
+      await _cache(existing);
+      return existing;
+    }
 
-    await client.from('current_programmes').upsert(row);
-    await ProgrammeAdaptationStore.resetForWeek(
-      1,
-      startedAt: DateTime.now(),
-      clearEvents: true,
-    );
-
-    return StoredProgramme(
+    final created = StoredProgramme(
       programme: generated,
       profileSignature: signature,
       currentWeek: 1,
@@ -213,38 +299,63 @@ class ProgrammeStore {
       activeSessionIndex: null,
       activeStartedAt: null,
     );
+    await _cache(created);
+    await _writeCloudOrQueue(_rowForStored(created, userId: user.id));
+    await ProgrammeAdaptationStore.resetForWeek(
+      1,
+      startedAt: DateTime.now(),
+      clearEvents: true,
+    );
+    return created;
   }
 
   Future<StoredProgramme?> loadCurrent() async {
     final user = client.auth.currentUser;
-    if (user == null) return null;
-    final row = await client
-        .from('current_programmes')
-        .select()
-        .eq('user_id', user.id)
-        .maybeSingle();
-    if (row == null) return null;
-    return _fromRow(Map<String, dynamic>.from(row));
+    if (user == null) return _cached();
+    try {
+      final row = await client
+          .from('current_programmes')
+          .select()
+          .eq('user_id', user.id)
+          .maybeSingle();
+      if (row == null) return _cached();
+      final stored = _fromRow(Map<String, dynamic>.from(row));
+      await _cache(stored);
+      return stored;
+    } catch (error) {
+      await AppErrorStore.record('Programme load', error);
+      return _cached();
+    }
   }
 
   Future<void> markSessionStarted(int sessionIndex) async {
-    final user = client.auth.currentUser;
-    if (user == null) return;
-    await client.from('current_programmes').update({
-      'active_session_index': sessionIndex,
-      'active_started_at': DateTime.now().toIso8601String(),
-      'updated_at': DateTime.now().toIso8601String(),
-    }).eq('user_id', user.id);
+    final current = await loadCurrent();
+    if (current == null) return;
+    final updated = StoredProgramme(
+      programme: current.programme,
+      profileSignature: current.profileSignature,
+      currentWeek: current.currentWeek,
+      currentSessionIndex: current.currentSessionIndex,
+      activeSessionIndex: sessionIndex,
+      activeStartedAt: DateTime.now(),
+    );
+    await _cache(updated);
+    await _writeCloudOrQueue(_rowForStored(updated));
   }
 
   Future<void> clearActiveSession() async {
-    final user = client.auth.currentUser;
-    if (user == null) return;
-    await client.from('current_programmes').update({
-      'active_session_index': null,
-      'active_started_at': null,
-      'updated_at': DateTime.now().toIso8601String(),
-    }).eq('user_id', user.id);
+    final current = await loadCurrent();
+    if (current == null) return;
+    final updated = StoredProgramme(
+      programme: current.programme,
+      profileSignature: current.profileSignature,
+      currentWeek: current.currentWeek,
+      currentSessionIndex: current.currentSessionIndex,
+      activeSessionIndex: null,
+      activeStartedAt: null,
+    );
+    await _cache(updated);
+    await _writeCloudOrQueue(_rowForStored(updated));
   }
 
   Future<void> completeSession(
@@ -253,7 +364,8 @@ class ProgrammeStore {
   }) async {
     final current = await loadCurrent();
     if (current == null || current.programme.sessions.isEmpty) return;
-    if (completedIndex < 0 || completedIndex >= current.programme.sessions.length) {
+    if (completedIndex < 0 ||
+        completedIndex >= current.programme.sessions.length) {
       return;
     }
 
@@ -301,30 +413,33 @@ class ProgrammeStore {
     required int completedIndex,
     Map<String, dynamic>? profile,
   }) async {
-    final user = client.auth.currentUser;
-    if (user == null || current.programme.sessions.isEmpty) return;
+    if (current.programme.sessions.isEmpty) return;
 
     final count = current.programme.sessions.length;
     var nextIndex = completedIndex + 1;
     var nextWeek = current.currentWeek;
 
     if (nextIndex < count) {
-      await client.from('current_programmes').update({
-        'current_session_index': nextIndex,
-        'active_session_index': null,
-        'active_started_at': null,
-        'updated_at': DateTime.now().toIso8601String(),
-      }).eq('user_id', user.id);
+      final updated = StoredProgramme(
+        programme: current.programme,
+        profileSignature: current.profileSignature,
+        currentWeek: current.currentWeek,
+        currentSessionIndex: nextIndex,
+        activeSessionIndex: null,
+        activeStartedAt: null,
+      );
+      await _cache(updated);
+      await _writeCloudOrQueue(_rowForStored(updated));
       return;
     }
 
     nextIndex = 0;
     nextWeek += 1;
-    var nextProgramme = profile == null
-        ? current.programme
-        : programmeFromProfile(profile);
+    var nextProgramme =
+        profile == null ? current.programme : programmeFromProfile(profile);
     String? adaptiveMode;
     String? adaptiveSummary;
+    AdaptiveWeekMode? decisionMode;
 
     if (profile != null) {
       try {
@@ -334,26 +449,48 @@ class ProgrammeStore {
           currentWeek: current.currentWeek,
         );
         nextProgramme = result.programme;
+        decisionMode = result.decision.mode;
         adaptiveMode = result.decision.mode.name;
         adaptiveSummary = result.decision.summary;
-      } catch (_) {
-        // If adaptation data is unavailable, fall back to the safe static
-        // profile-generated programme rather than blocking the week transition.
+      } catch (error) {
+        await AppErrorStore.record('Adaptive week build', error);
         nextProgramme = programmeFromProfile(profile);
       }
     }
 
-    await client.from('current_programmes').update({
-      'goal': nextProgramme.goal,
-      'structure': nextProgramme.structure,
-      'explanation': nextProgramme.explanation,
-      'sessions': _sessionsToJson(nextProgramme.sessions),
-      'current_week': nextWeek,
-      'current_session_index': nextIndex,
-      'active_session_index': null,
-      'active_started_at': null,
-      'updated_at': DateTime.now().toIso8601String(),
-    }).eq('user_id', user.id);
+    final strength = StrengthAdaptationCache.current;
+    final plan = PeriodizationEngine.forWeek(
+      programmeWeek: nextWeek,
+      forceRecovery: decisionMode == AdaptiveWeekMode.recovery ||
+          strength?.action == StrengthAdaptationAction.deload,
+      consolidate: decisionMode == AdaptiveWeekMode.consolidate ||
+          strength?.action == StrengthAdaptationAction.reduce ||
+          strength?.action == StrengthAdaptationAction.maintain,
+      progressionSupported: decisionMode == AdaptiveWeekMode.progress &&
+          (strength == null ||
+              strength.action == StrengthAdaptationAction.progress),
+    );
+    PeriodizationEngine.setCurrent(plan);
+    final periodizedSessions =
+        PeriodizationEngine.adaptSessions(nextProgramme.sessions, plan);
+    nextProgramme = GeneratedProgramme(
+      goal: nextProgramme.goal,
+      structure: '${nextProgramme.structure} • ${plan.phase.label} block',
+      explanation:
+          '${plan.headline}. ${plan.reasons.join(' ')}\n\n${nextProgramme.explanation}',
+      sessions: periodizedSessions,
+    );
+
+    final updated = StoredProgramme(
+      programme: nextProgramme,
+      profileSignature: current.profileSignature,
+      currentWeek: nextWeek,
+      currentSessionIndex: nextIndex,
+      activeSessionIndex: null,
+      activeStartedAt: null,
+    );
+    await _cache(updated);
+    await _writeCloudOrQueue(_rowForStored(updated));
 
     await ProgrammeAdaptationStore.resetForWeek(
       nextWeek,
