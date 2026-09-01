@@ -1,14 +1,20 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'account_screen.dart';
+import 'adaptive_strength_engine.dart';
 import 'custom_workouts_screen.dart';
 import 'exercise_library_screen.dart';
+import 'exercise_performance_store.dart';
 import 'lean_eat_theme.dart';
 import 'progress_screen.dart';
 import 'readiness_screen.dart';
+import 'strength_adaptation_cache.dart';
 import 'today_dashboard.dart';
 import 'training_settings_screen.dart';
+import 'training_store.dart';
 
 class LeanEatMemberShell extends StatefulWidget {
   final Widget programmeHome;
@@ -25,12 +31,51 @@ class LeanEatMemberShell extends StatefulWidget {
 class _LeanEatMemberShellState extends State<LeanEatMemberShell> {
   int _index = 0;
   int _homeRevision = 0;
+  int _adaptationRefreshToken = 0;
   late List<Widget> _pages;
 
   @override
   void initState() {
     super.initState();
     _pages = _buildPages();
+    TrainingStore.revision.addListener(_onTrainingRevision);
+    unawaited(_refreshStrengthAdaptation());
+  }
+
+  @override
+  void dispose() {
+    TrainingStore.revision.removeListener(_onTrainingRevision);
+    super.dispose();
+  }
+
+  void _onTrainingRevision() {
+    unawaited(_refreshStrengthAdaptation());
+  }
+
+  Future<void> _refreshStrengthAdaptation() async {
+    final token = ++_adaptationRefreshToken;
+    try {
+      final workoutsFuture = TrainingStore.loadWorkouts();
+      final readinessFuture = TrainingStore.loadReadiness();
+      final setsFuture = ExercisePerformanceStore(
+        Supabase.instance.client,
+      ).loadAll();
+
+      final workouts = await workoutsFuture;
+      final readiness = await readinessFuture;
+      final sets = await setsFuture;
+      if (!mounted || token != _adaptationRefreshToken) return;
+
+      StrengthAdaptationCache.set(
+        StrengthAdaptationEngine.analyse(
+          workouts: workouts,
+          sets: sets,
+          readiness: readiness.isEmpty ? null : readiness.first,
+        ),
+      );
+    } catch (_) {
+      // The existing workout flow remains usable when analytics cannot refresh.
+    }
   }
 
   List<Widget> _buildPages() => [
@@ -46,6 +91,7 @@ class _LeanEatMemberShellState extends State<LeanEatMemberShell> {
       ];
 
   void _selectDestination(int value) {
+    unawaited(_refreshStrengthAdaptation());
     setState(() {
       _index = value;
       if (value == 0) {

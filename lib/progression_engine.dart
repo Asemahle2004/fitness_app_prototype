@@ -1,4 +1,6 @@
+import 'adaptive_strength_engine.dart';
 import 'exercise_performance_store.dart';
+import 'strength_adaptation_cache.dart';
 import 'workout_engine.dart';
 
 class ProgressionSuggestion {
@@ -21,8 +23,19 @@ class ProgressionEngine {
   static ProgressionSuggestion? suggest({
     required ExercisePrescription exercise,
     required ExerciseSetPerformance? previous,
+    StrengthAdaptationRecommendation? adaptation,
   }) {
     if (previous == null) return null;
+    final resolvedAdaptation = adaptation ?? StrengthAdaptationCache.current;
+
+    if (resolvedAdaptation != null &&
+        resolvedAdaptation.action != StrengthAdaptationAction.progress) {
+      return _protectedTarget(
+        exercise: exercise,
+        previous: previous,
+        adaptation: resolvedAdaptation,
+      );
+    }
 
     if (previous.durationSeconds != null) {
       final prior = previous.durationSeconds!;
@@ -61,7 +74,7 @@ class ProgressionEngine {
           targetDurationSeconds: null,
           headline: 'Next target: ${_weight(nextWeight)} kg × $lower reps',
           explanation:
-              'You reached the top of the current rep range. LeanEat suggests a small load increase and returning to the lower end of the rep range.',
+              'You reached the top of the current rep range. LeanIt suggests a small load increase and returning to the lower end of the rep range.',
         );
       }
 
@@ -96,6 +109,103 @@ class ProgressionEngine {
       explanation:
           'You are already at the top of the rep range. Keep the reps controlled; a harder variation or added resistance can be considered later.',
     );
+  }
+
+  static ProgressionSuggestion _protectedTarget({
+    required ExercisePrescription exercise,
+    required ExerciseSetPerformance previous,
+    required StrengthAdaptationRecommendation adaptation,
+  }) {
+    final range = _numbers(exercise.reps);
+    final previousReps = previous.reps;
+    final lower = range.isEmpty ? (previousReps ?? 1) : range.first;
+
+    if (previous.durationSeconds != null) {
+      final prior = previous.durationSeconds!;
+      switch (adaptation.action) {
+        case StrengthAdaptationAction.deload:
+          final target = (prior * 0.80).round().clamp(10, prior).toInt();
+          return ProgressionSuggestion(
+            targetReps: null,
+            targetWeightKg: null,
+            targetDurationSeconds: target,
+            headline: 'Deload target: ${_duration(target)}',
+            explanation:
+                '${adaptation.headline}. Timed work is reduced to about 80% of the previous effort so recovery can catch up.',
+          );
+        case StrengthAdaptationAction.reduce:
+          final target = (prior * 0.90).round().clamp(10, prior).toInt();
+          return ProgressionSuggestion(
+            targetReps: null,
+            targetWeightKg: null,
+            targetDurationSeconds: target,
+            headline: 'Reduced target: ${_duration(target)}',
+            explanation:
+                '${adaptation.headline}. LeanIt trims the timed target instead of increasing training stress.',
+          );
+        case StrengthAdaptationAction.buildBaseline:
+        case StrengthAdaptationAction.maintain:
+          return ProgressionSuggestion(
+            targetReps: null,
+            targetWeightKg: null,
+            targetDurationSeconds: prior,
+            headline: 'Hold target: ${_duration(prior)}',
+            explanation:
+                '${adaptation.headline}. Repeat the current duration cleanly before progressing.',
+          );
+        case StrengthAdaptationAction.progress:
+          throw StateError('Progress action should use the normal progression path.');
+      }
+    }
+
+    final priorReps = previousReps ?? lower;
+    final priorWeight = previous.weightKg;
+    switch (adaptation.action) {
+      case StrengthAdaptationAction.deload:
+        final targetReps = lower.clamp(1, priorReps).toInt();
+        final targetWeight = priorWeight == null || priorWeight <= 0
+            ? null
+            : _roundLoad(priorWeight * adaptation.suggestedLoadMultiplier);
+        return ProgressionSuggestion(
+          targetReps: targetReps,
+          targetWeightKg: targetWeight,
+          targetDurationSeconds: null,
+          headline: targetWeight == null
+              ? 'Deload target: $targetReps controlled reps'
+              : 'Deload target: ${_weight(targetWeight)} kg × $targetReps reps',
+          explanation:
+              '${adaptation.headline}. LeanIt reduces the working target instead of adding reps or load; total session sets should also be reduced.',
+        );
+      case StrengthAdaptationAction.reduce:
+        final reducedReps = (priorReps - 1).clamp(lower, priorReps).toInt();
+        final targetWeight = priorWeight == null || priorWeight <= 0
+            ? null
+            : _roundLoad(priorWeight * adaptation.suggestedLoadMultiplier);
+        return ProgressionSuggestion(
+          targetReps: reducedReps,
+          targetWeightKg: targetWeight,
+          targetDurationSeconds: null,
+          headline: targetWeight == null
+              ? 'Reduced target: $reducedReps reps'
+              : 'Reduced target: ${_weight(targetWeight)} kg × $reducedReps reps',
+          explanation:
+              '${adaptation.headline}. Today’s target is intentionally below the normal progression path.',
+        );
+      case StrengthAdaptationAction.buildBaseline:
+      case StrengthAdaptationAction.maintain:
+        return ProgressionSuggestion(
+          targetReps: priorReps,
+          targetWeightKg: priorWeight,
+          targetDurationSeconds: null,
+          headline: priorWeight == null || priorWeight <= 0
+              ? 'Hold target: $priorReps reps'
+              : 'Hold target: ${_weight(priorWeight)} kg × $priorReps reps',
+          explanation:
+              '${adaptation.headline}. Repeat the last controlled result before LeanIt asks for more.',
+        );
+      case StrengthAdaptationAction.progress:
+        throw StateError('Progress action should use the normal progression path.');
+    }
   }
 
   static List<int> _numbers(String value) {

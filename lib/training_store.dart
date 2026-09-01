@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -9,6 +10,7 @@ class WorkoutRecord {
   final int durationSeconds;
   final int completedSets;
   final List<String> exercises;
+  final String? perceivedEffort;
 
   const WorkoutRecord({
     required this.title,
@@ -16,6 +18,7 @@ class WorkoutRecord {
     required this.durationSeconds,
     required this.completedSets,
     required this.exercises,
+    this.perceivedEffort,
   });
 
   Map<String, dynamic> toJson() => {
@@ -24,6 +27,7 @@ class WorkoutRecord {
         'durationSeconds': durationSeconds,
         'completedSets': completedSets,
         'exercises': exercises,
+        if (perceivedEffort != null) 'perceivedEffort': perceivedEffort,
       };
 
   factory WorkoutRecord.fromJson(Map<String, dynamic> json) {
@@ -40,6 +44,19 @@ class WorkoutRecord {
       exercises: (json['exercises'] as List? ?? const [])
           .whereType<String>()
           .toList(growable: false),
+      perceivedEffort:
+          (json['perceivedEffort'] ?? json['perceived_effort']) as String?,
+    );
+  }
+
+  WorkoutRecord copyWith({String? perceivedEffort}) {
+    return WorkoutRecord(
+      title: title,
+      completedAt: completedAt,
+      durationSeconds: durationSeconds,
+      completedSets: completedSets,
+      exercises: exercises,
+      perceivedEffort: perceivedEffort ?? this.perceivedEffort,
     );
   }
 }
@@ -101,6 +118,7 @@ class ReadinessRecord {
 class TrainingStore {
   static const _workoutsKey = 'leaneat_workout_history_v2';
   static const _readinessKey = 'leaneat_readiness_history_v2';
+  static final ValueNotifier<int> revision = ValueNotifier<int>(0);
 
   static SupabaseClient? get _clientOrNull {
     try {
@@ -117,6 +135,7 @@ class TrainingStore {
       _workoutsKey,
       [jsonEncode(record.toJson()), ...existing].take(200).toList(),
     );
+    revision.value += 1;
 
     final client = _clientOrNull;
     final user = client?.auth.currentUser;
@@ -131,12 +150,41 @@ class TrainingStore {
           'exercises': record.exercises,
         });
       } catch (_) {
-        // Local history remains available if cloud sync is temporarily offline.
+        // Perceived effort stays local-first until the backend table gains an
+        // explicit column. Other workout data remains safe locally as well.
       }
     }
   }
 
+  static Future<void> updateWorkoutEffort({
+    required DateTime completedAt,
+    required String effort,
+  }) async {
+    if (!const {'easy', 'about_right', 'hard'}.contains(effort)) return;
+    final records = await _loadLocalWorkouts();
+    final updated = records
+        .map(
+          (record) => _sameWorkoutTime(record.completedAt, completedAt)
+              ? record.copyWith(perceivedEffort: effort)
+              : record,
+        )
+        .toList(growable: false);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      _workoutsKey,
+      updated.map((record) => jsonEncode(record.toJson())).toList(growable: false),
+    );
+    revision.value += 1;
+  }
+
   static Future<List<WorkoutRecord>> loadWorkouts() async {
+    final local = await _loadLocalWorkouts();
+    final merged = <String, WorkoutRecord>{};
+
+    for (final record in local) {
+      merged[_workoutSignature(record)] = record;
+    }
+
     final client = _clientOrNull;
     final user = client?.auth.currentUser;
     if (client != null && user != null) {
@@ -149,25 +197,48 @@ class TrainingStore {
             .limit(200);
         final cloud = (rows as List)
             .whereType<Map<String, dynamic>>()
-            .map(WorkoutRecord.fromJson)
-            .toList(growable: false);
-        if (cloud.isNotEmpty) return cloud;
+            .map(WorkoutRecord.fromJson);
+        for (final record in cloud) {
+          final signature = _workoutSignature(record);
+          final existing = merged[signature];
+          if (existing == null) {
+            merged[signature] = record;
+          }
+        }
       } catch (_) {}
     }
 
+    final records = merged.values.toList(growable: false)
+      ..sort((a, b) => b.completedAt.compareTo(a.completedAt));
+    return records.take(200).toList(growable: false);
+  }
+
+  static Future<List<WorkoutRecord>> _loadLocalWorkouts() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getStringList(_workoutsKey) ?? const <String>[];
     final records = <WorkoutRecord>[];
     for (final item in raw) {
       try {
-        records.add(WorkoutRecord.fromJson(
-          Map<String, dynamic>.from(jsonDecode(item) as Map),
-        ));
+        records.add(
+          WorkoutRecord.fromJson(
+            Map<String, dynamic>.from(jsonDecode(item) as Map),
+          ),
+        );
       } catch (_) {}
     }
     records.sort((a, b) => b.completedAt.compareTo(a.completedAt));
     return records;
   }
+
+  static String _workoutSignature(WorkoutRecord record) => [
+        record.title,
+        record.completedAt.toUtc().toIso8601String(),
+        record.durationSeconds,
+        record.completedSets,
+      ].join('|');
+
+  static bool _sameWorkoutTime(DateTime a, DateTime b) =>
+      (a.toUtc().difference(b.toUtc()).inMilliseconds).abs() < 5;
 
   static Future<void> saveReadiness(ReadinessRecord record) async {
     final prefs = await SharedPreferences.getInstance();
@@ -176,6 +247,7 @@ class TrainingStore {
       _readinessKey,
       [jsonEncode(record.toJson()), ...existing].take(90).toList(),
     );
+    revision.value += 1;
 
     final client = _clientOrNull;
     final user = client?.auth.currentUser;
@@ -218,9 +290,11 @@ class TrainingStore {
     final records = <ReadinessRecord>[];
     for (final item in raw) {
       try {
-        records.add(ReadinessRecord.fromJson(
-          Map<String, dynamic>.from(jsonDecode(item) as Map),
-        ));
+        records.add(
+          ReadinessRecord.fromJson(
+            Map<String, dynamic>.from(jsonDecode(item) as Map),
+          ),
+        );
       } catch (_) {}
     }
     records.sort((a, b) => b.recordedAt.compareTo(a.recordedAt));

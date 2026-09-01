@@ -26,6 +26,28 @@ void main() {
     expect(records.first.exercises, contains('Dumbbell Bench Press'));
   });
 
+  test('updates perceived effort without duplicating workout history', () async {
+    final completedAt = DateTime(2026, 8, 30, 8, 0);
+    await TrainingStore.saveWorkout(
+      WorkoutRecord(
+        title: 'Upper Body A',
+        completedAt: completedAt,
+        durationSeconds: 2700,
+        completedSets: 18,
+        exercises: const ['Dumbbell Bench Press', 'Row'],
+      ),
+    );
+
+    await TrainingStore.updateWorkoutEffort(
+      completedAt: completedAt,
+      effort: 'hard',
+    );
+    final records = await TrainingStore.loadWorkouts();
+
+    expect(records, hasLength(1));
+    expect(records.first.perceivedEffort, 'hard');
+  });
+
   test('readiness score gives lower recommendation when recovery is poor', () async {
     final record = ReadinessRecord(
       recordedAt: DateTime(2026, 8, 30),
