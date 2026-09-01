@@ -14,6 +14,7 @@ import 'lean_eat_theme.dart';
 import 'profile_service.dart';
 import 'account_screen.dart';
 import 'member_shell.dart';
+import 'training_environment_engine.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 Future<void> main() async {
@@ -3782,6 +3783,9 @@ class WorkoutDetailScreen extends StatefulWidget {
 
 class _WorkoutDetailScreenState extends State<WorkoutDetailScreen> {
   late String selectedLocation;
+  late final String originalLocation;
+  late Set<String> todayHomeEquipment;
+  String? todayGymAccess;
   List<ExercisePrescription>? customExercises;
 
   ExercisePrescription _fromOnlineExercise(OnlineExercise exercise) {
@@ -3831,16 +3835,239 @@ class _WorkoutDetailScreenState extends State<WorkoutDetailScreen> {
     } else {
       selectedLocation = 'Outside';
     }
+    originalLocation = selectedLocation;
+    todayHomeEquipment = Set<String>.from(widget.homeEquipment);
+    todayGymAccess = widget.gymAccess;
+  }
+
+  Future<void> _chooseHomeEquipmentForToday() async {
+    const options = <String>[
+      'Bodyweight only',
+      'Dumbbells',
+      'Resistance bands',
+      'Pull-up bar',
+      'Bench',
+      'Barbell',
+      'Weight plates',
+      'Kettlebell',
+      'Skipping rope',
+    ];
+    final working = todayHomeEquipment.isEmpty
+        ? <String>{'Bodyweight only'}
+        : Set<String>.from(todayHomeEquipment);
+    final result = await showModalBottomSheet<Set<String>>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'What can you use at home today?',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF102A43),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'This changes today’s session only. Your saved equipment profile stays unchanged.',
+                  style: TextStyle(color: Color(0xFF627D98)),
+                ),
+                const SizedBox(height: 14),
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: options.map((item) {
+                        final selected = working.contains(item);
+                        return FilterChip(
+                          label: Text(item),
+                          selected: selected,
+                          onSelected: (_) {
+                            setSheetState(() {
+                              if (item == 'Bodyweight only') {
+                                working
+                                  ..clear()
+                                  ..add('Bodyweight only');
+                              } else {
+                                working.remove('Bodyweight only');
+                                if (selected) {
+                                  working.remove(item);
+                                } else {
+                                  working.add(item);
+                                }
+                                if (working.isEmpty) {
+                                  working.add('Bodyweight only');
+                                }
+                              }
+                            });
+                          },
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(
+                      sheetContext,
+                      Set<String>.from(working),
+                    ),
+                    child: const Text('USE THIS EQUIPMENT TODAY'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    if (!mounted || result == null) return;
+    setState(() {
+      todayHomeEquipment = result;
+      customExercises = null;
+    });
+  }
+
+  Future<void> _chooseGymAccessForToday() async {
+    final result = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'What gym setup do you have today?',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF102A43),
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'This is a today-only choice and does not change your account profile.',
+                style: TextStyle(color: Color(0xFF627D98)),
+              ),
+              const SizedBox(height: 10),
+              for (final option in const ['Full gym', 'Basic gym', "I'm not sure"])
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.fitness_center_outlined),
+                  title: Text(option),
+                  trailing: todayGymAccess == option
+                      ? const Icon(Icons.check_circle, color: Color(0xFF176B87))
+                      : null,
+                  onTap: () => Navigator.pop(sheetContext, option),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted || result == null) return;
+    setState(() {
+      todayGymAccess = result;
+      customExercises = null;
+    });
+  }
+
+  Future<void> _chooseTrainingEnvironment() async {
+    final result = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Where are you training today?',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF102A43),
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'LeanIt will rebuild this session for the new environment without changing your permanent programme profile.',
+                style: TextStyle(color: Color(0xFF627D98)),
+              ),
+              const SizedBox(height: 10),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.fitness_center),
+                title: const Text('Gym'),
+                onTap: () => Navigator.pop(sheetContext, 'Gym'),
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.home_rounded),
+                title: const Text('Home'),
+                onTap: () => Navigator.pop(sheetContext, 'Home'),
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.directions_run),
+                title: const Text('Outside'),
+                onTap: () => Navigator.pop(sheetContext, 'Outside'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted || result == null) return;
+    setState(() {
+      selectedLocation = result;
+      customExercises = null;
+    });
+    if (result == 'Home' && todayHomeEquipment.isEmpty) {
+      await _chooseHomeEquipmentForToday();
+    } else if (result == 'Gym' && todayGymAccess == null) {
+      await _chooseGymAccessForToday();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final generatedWorkout = WorkoutEngine.generate(
+    final generatedWorkout = TrainingEnvironmentEngine.generate(
       sessionTitle: widget.session.title,
-      location: selectedLocation,
-      homeEquipment: widget.homeEquipment,
+      environment: selectedLocation,
+      savedHomeEquipment: widget.homeEquipment,
+      todayHomeEquipment: todayHomeEquipment,
+      gymAccess: todayGymAccess,
+      sessionDuration: widget.session.duration,
+    );
+    final originalGeneratedWorkout = TrainingEnvironmentEngine.generate(
+      sessionTitle: widget.session.title,
+      environment: originalLocation,
+      savedHomeEquipment: widget.homeEquipment,
       gymAccess: widget.gymAccess,
       sessionDuration: widget.session.duration,
+    );
+    final environmentSummary = TrainingEnvironmentEngine.compare(
+      original: originalGeneratedWorkout,
+      originalEnvironment: originalLocation,
+      adapted: generatedWorkout,
+      adaptedEnvironment: selectedLocation,
     );
     final structuredWorkout = WorkoutStructureEnhancer.enhance(
       generatedWorkout,
@@ -3923,40 +4150,138 @@ class _WorkoutDetailScreenState extends State<WorkoutDetailScreen> {
 
                     const SizedBox(height: 24),
 
-                    if (widget.locations.length > 1) ...[
-                      const Text(
-                        'Where are you training today?',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF102A43),
+                    const Text(
+                      'Training setup today',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF102A43),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Plans change. Choose where you are actually training today and LeanIt will rebuild this session around that environment.',
+                      style: TextStyle(
+                        fontSize: 14,
+                        height: 1.4,
+                        color: Color(0xFF627D98),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: TrainingEnvironmentEngine.environments.map(
+                        (location) => ChoiceChip(
+                          avatar: Icon(
+                            location == 'Home'
+                                ? Icons.home_rounded
+                                : location == 'Outside'
+                                    ? Icons.directions_run
+                                    : Icons.fitness_center,
+                            size: 18,
+                          ),
+                          label: Text(location),
+                          selected: selectedLocation == location,
+                          onSelected: (_) async {
+                            if (selectedLocation == location) return;
+                            setState(() {
+                              selectedLocation = location;
+                              customExercises = null;
+                            });
+                            if (location == 'Home' && todayHomeEquipment.isEmpty) {
+                              await _chooseHomeEquipmentForToday();
+                            } else if (location == 'Gym' && todayGymAccess == null) {
+                              await _chooseGymAccessForToday();
+                            }
+                          },
+                        ),
+                      ).toList(),
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: environmentSummary.changed
+                            ? const Color(0xFFEAF7FA)
+                            : const Color(0xFFF7F9FC),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0xFFD9E2EC)),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            environmentSummary.changed
+                                ? Icons.swap_horiz_rounded
+                                : Icons.check_circle_outline,
+                            color: const Color(0xFF176B87),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  environmentSummary.headline,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF102A43),
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  environmentSummary.explanation,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    height: 1.4,
+                                    color: Color(0xFF627D98),
+                                  ),
+                                ),
+                                if (!widget.locations.contains(selectedLocation)) ...[
+                                  const SizedBox(height: 4),
+                                  const Text(
+                                    'Today-only switch — your saved training-location profile is unchanged.',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Color(0xFF176B87),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (selectedLocation == 'Home') ...[
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: _chooseHomeEquipmentForToday,
+                          icon: const Icon(Icons.home_repair_service_outlined),
+                          label: Text(
+                            todayHomeEquipment.isEmpty
+                                ? 'HOME TODAY: BODYWEIGHT ONLY'
+                                : 'HOME EQUIPMENT TODAY (${todayHomeEquipment.length})',
+                          ),
                         ),
                       ),
-
-                      const SizedBox(height: 12),
-
-                      Wrap(
-                        spacing: 10,
-                        runSpacing: 10,
-                        children: ['Gym', 'Home', 'Outside']
-                            .where(widget.locations.contains)
-                            .map(
-                              (location) => ChoiceChip(
-                                label: Text(location),
-                                selected: selectedLocation == location,
-                                onSelected: (_) {
-                                  setState(() {
-                                    selectedLocation = location;
-                                    customExercises = null;
-                                  });
-                                },
-                              ),
-                            )
-                            .toList(),
-                      ),
-
-                      const SizedBox(height: 24),
                     ],
+                    if (selectedLocation == 'Gym') ...[
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: _chooseGymAccessForToday,
+                          icon: const Icon(Icons.fitness_center_outlined),
+                          label: Text('GYM TODAY: ${todayGymAccess ?? "I'M NOT SURE"}'),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 24),
 
                     if (adaptation.status != SafetyStatus.normal) ...[
                       Container(
@@ -4210,15 +4535,20 @@ class _WorkoutDetailScreenState extends State<WorkoutDetailScreen> {
                 child: ElevatedButton(
                   onPressed: adaptation.blocksTraining
                       ? null
-                      : () {
-                          Navigator.push(
+                      : () async {
+                          final result = await Navigator.push<String>(
                             context,
                             MaterialPageRoute(
                               builder: (context) => LiveWorkoutScreen(
                                 workout: workout,
+                                trainingEnvironment: selectedLocation,
                               ),
                             ),
                           );
+                          if (!mounted) return;
+                          if (result == 'changeTrainingEnvironment') {
+                            await _chooseTrainingEnvironment();
+                          }
                         },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF176B87),
