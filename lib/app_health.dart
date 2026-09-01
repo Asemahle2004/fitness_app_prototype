@@ -81,7 +81,10 @@ class AppErrorStore {
       '[email redacted]',
     );
     output = output.replaceAll(
-      RegExp(r'(?i)(password|secret|token)\s*[:=]\s*[^\s,;]+'),
+      RegExp(
+        r'(password|secret|token)\s*[:=]\s*[^\s,;]+',
+        caseSensitive: false,
+      ),
       '[sensitive value redacted]',
     );
     return output.length > 500 ? '${output.substring(0, 500)}…' : output;
