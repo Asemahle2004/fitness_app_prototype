@@ -172,6 +172,11 @@ class _WorkoutCalendarScreenState extends State<WorkoutCalendarScreen> {
                       icon: Icons.fitness_center_rounded,
                     ),
                     _CalendarStat(
+                      label: 'Recovery days',
+                      value: '${stats.recoveryDays}',
+                      icon: Icons.self_improvement_rounded,
+                    ),
+                    _CalendarStat(
                       label: 'Rest days',
                       value: '${stats.restDays}',
                       icon: Icons.hotel_rounded,
@@ -243,6 +248,8 @@ class _WorkoutCalendarScreenState extends State<WorkoutCalendarScreen> {
                           );
                           final workouts = grouped[day] ?? const <WorkoutRecord>[];
                           final trained = workouts.isNotEmpty;
+                          final recoveryOnly = workouts.isNotEmpty &&
+                              workouts.every(WorkoutCalendarEngine.isRecoveryRecord);
                           final selectedDay =
                               WorkoutCalendarEngine.sameDay(day, _selectedDay);
                           final today = WorkoutCalendarEngine.sameDay(day, now);
@@ -286,7 +293,9 @@ class _WorkoutCalendarScreenState extends State<WorkoutCalendarScreen> {
                                       width: workouts.length > 1 ? 18 : 8,
                                       height: 8,
                                       decoration: BoxDecoration(
-                                        color: const Color(0xFF176B87),
+                                        color: recoveryOnly
+                                            ? const Color(0xFF55721B)
+                                            : const Color(0xFF176B87),
                                         borderRadius: BorderRadius.circular(99),
                                       ),
                                     )
@@ -310,17 +319,38 @@ class _WorkoutCalendarScreenState extends State<WorkoutCalendarScreen> {
                         },
                       ),
                       const SizedBox(height: 8),
-                      const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                      const Wrap(
+                        alignment: WrapAlignment.center,
+                        spacing: 18,
+                        runSpacing: 7,
                         children: [
-                          _LegendDot(),
-                          SizedBox(width: 7),
-                          Text(
-                            'Training completed',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Color(0xFF627D98),
-                            ),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _LegendDot(),
+                              SizedBox(width: 7),
+                              Text(
+                                'Training',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Color(0xFF627D98),
+                                ),
+                              ),
+                            ],
+                          ),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _LegendDot(recovery: true),
+                              SizedBox(width: 7),
+                              Text(
+                                'Recovery',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Color(0xFF627D98),
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
@@ -369,11 +399,17 @@ class _WorkoutCalendarScreenState extends State<WorkoutCalendarScreen> {
                         children: [
                           Row(
                             children: [
-                              const CircleAvatar(
-                                backgroundColor: Color(0xFFE5F4F8),
+                              CircleAvatar(
+                                backgroundColor: WorkoutCalendarEngine.isRecoveryRecord(record)
+                                    ? const Color(0xFFF3F8DC)
+                                    : const Color(0xFFE5F4F8),
                                 child: Icon(
-                                  Icons.fitness_center_rounded,
-                                  color: Color(0xFF176B87),
+                                  WorkoutCalendarEngine.isRecoveryRecord(record)
+                                      ? Icons.self_improvement_rounded
+                                      : Icons.fitness_center_rounded,
+                                  color: WorkoutCalendarEngine.isRecoveryRecord(record)
+                                      ? const Color(0xFF55721B)
+                                      : const Color(0xFF176B87),
                                 ),
                               ),
                               const SizedBox(width: 12),
@@ -391,7 +427,9 @@ class _WorkoutCalendarScreenState extends State<WorkoutCalendarScreen> {
                                     ),
                                     const SizedBox(height: 3),
                                     Text(
-                                      '${_time(record.completedAt)} • ${_duration(record.durationSeconds)} • ${record.completedSets} sets',
+                                      WorkoutCalendarEngine.isRecoveryRecord(record)
+                                          ? '${_time(record.completedAt)} • ${_duration(record.durationSeconds)} • recovery session'
+                                          : '${_time(record.completedAt)} • ${_duration(record.durationSeconds)} • ${record.completedSets} sets',
                                       style: const TextStyle(
                                         fontSize: 12,
                                         color: Color(0xFF627D98),
@@ -404,9 +442,11 @@ class _WorkoutCalendarScreenState extends State<WorkoutCalendarScreen> {
                           ),
                           if (record.exercises.isNotEmpty) ...[
                             const SizedBox(height: 14),
-                            const Text(
-                              'Exercises',
-                              style: TextStyle(
+                            Text(
+                              WorkoutCalendarEngine.isRecoveryRecord(record)
+                                  ? 'Recovery steps'
+                                  : 'Exercises',
+                              style: const TextStyle(
                                 fontWeight: FontWeight.bold,
                                 color: Color(0xFF486581),
                               ),
@@ -459,7 +499,7 @@ class _WorkoutCalendarScreenState extends State<WorkoutCalendarScreen> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
-                            'This month: ${_duration(stats.totalDurationSeconds)} training time and ${stats.completedSets} completed sets.',
+                            'This month: ${_duration(stats.totalDurationSeconds)} logged training/recovery time and ${stats.completedSets} completed working sets.',
                             style: const TextStyle(
                               color: Color(0xFF486581),
                               height: 1.4,
@@ -546,15 +586,19 @@ class _Weekday extends StatelessWidget {
 }
 
 class _LegendDot extends StatelessWidget {
-  const _LegendDot();
+  final bool recovery;
+
+  const _LegendDot({this.recovery = false});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: 8,
       height: 8,
-      decoration: const BoxDecoration(
-        color: Color(0xFF176B87),
+      decoration: BoxDecoration(
+        color: recovery
+            ? const Color(0xFF55721B)
+            : const Color(0xFF176B87),
         shape: BoxShape.circle,
       ),
     );

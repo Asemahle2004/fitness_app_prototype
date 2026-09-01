@@ -4,6 +4,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'lean_eat_theme.dart';
 import 'live_workout_screen.dart';
 import 'profile_service.dart';
+import 'recovery_day_engine.dart';
+import 'recovery_day_screen.dart';
 import 'programme_engine.dart';
 import 'programme_store.dart';
 import 'readiness_screen.dart';
@@ -90,7 +92,10 @@ class _LeanEatTodayDashboardState extends State<LeanEatTodayDashboard> {
 
       ReadinessRecord? readiness;
       final readinessHistory = await TrainingStore.loadReadiness();
-      if (readinessHistory.isNotEmpty) readiness = readinessHistory.first;
+      if (readinessHistory.isNotEmpty &&
+          RecoveryDayEngine.isTodaysCheckIn(readinessHistory.first)) {
+        readiness = readinessHistory.first;
+      }
 
       if (!mounted) return;
       setState(() {
@@ -210,6 +215,27 @@ class _LeanEatTodayDashboardState extends State<LeanEatTodayDashboard> {
     if (mounted) await _load();
   }
 
+  Future<void> _startRecoveryDay() async {
+    final readiness = _readiness;
+    final profile = _profile;
+    if (readiness == null ||
+        profile == null ||
+        !RecoveryDayEngine.shouldOffer(readiness)) {
+      return;
+    }
+
+    await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => RecoveryDayScreen(
+          readiness: readiness,
+          profile: profile,
+        ),
+      ),
+    );
+    if (mounted) await _load();
+  }
+
   Widget _statChip(IconData icon, String label) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
@@ -280,6 +306,10 @@ class _LeanEatTodayDashboardState extends State<LeanEatTodayDashboard> {
     final isToday = session?.day == todayName;
     final adaptation = session == null ? null : _adaptationFor(session, _profile!);
     final readiness = _readiness;
+    final recoveryAvailable = readiness != null &&
+        RecoveryDayEngine.shouldOffer(readiness) &&
+        adaptation?.blocksTraining != true &&
+        activeIndex == null;
 
     final heading = activeIndex != null
         ? 'Continue your workout'
@@ -482,6 +512,94 @@ class _LeanEatTodayDashboardState extends State<LeanEatTodayDashboard> {
                   ),
                 ),
               const SizedBox(height: 18),
+              if (recoveryAvailable) ...[
+                Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF3F8DC),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: const Color(0xFFD8E89A)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 46,
+                            height: 46,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFE8F0C7),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: const Icon(
+                              Icons.self_improvement_rounded,
+                              color: Color(0xFF55721B),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'RECOVERY OPTION',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w900,
+                                    color: Color(0xFF55721B),
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  readiness!.score < 40
+                                      ? 'Recovery is the priority today'
+                                      : 'Consider a lighter recovery day',
+                                  style: const TextStyle(
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w900,
+                                    color: Color(0xFF102A43),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Your readiness is ${readiness.score.round()}/100. LeanIt can guide easy movement, mobility, stretching and breathing without advancing your programme or adding strength volume.',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          height: 1.4,
+                          color: Color(0xFF486581),
+                        ),
+                      ),
+                      const SizedBox(height: 13),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: _startRecoveryDay,
+                          icon: const Icon(Icons.self_improvement_rounded),
+                          label: const Text(
+                            'START RECOVERY DAY',
+                            style: TextStyle(fontWeight: FontWeight.w900),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Your planned workout remains available if you decide to train.',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFF829AB1),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 18),
+              ],
               InkWell(
                 borderRadius: BorderRadius.circular(20),
                 onTap: () {

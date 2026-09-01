@@ -64,7 +64,7 @@ class _RecoveryDayScreenState extends State<RecoveryDayScreen> {
     if (completed != true) return;
 
     final finishedAt = DateTime.now();
-    final elapsed = finishedAt.difference(startedAt).inSeconds.clamp(1, 7200);
+    final elapsed = finishedAt.difference(startedAt).inSeconds.clamp(1, 7200).toInt();
     if (!_saved) {
       _saved = true;
       await TrainingStore.saveWorkout(
