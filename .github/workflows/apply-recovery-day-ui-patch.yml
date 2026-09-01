@@ -20,7 +20,68 @@ jobs:
           fetch-depth: 0
 
       - name: Apply recovery day UI patch
-        run: python tools/apply_recovery_day_ui_patch.py
+        shell: bash
+        run: |
+          set +e
+          output="$(python tools/apply_recovery_day_ui_patch.py 2>&1)"
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          if [ "$status" -ne 0 ] && ! printf '%s' "$output" | grep -q "Patch anchor missing in lib/workout_calendar_screen.dart"; then
+            exit "$status"
+          fi
+
+          python - <<'PY'
+          from pathlib import Path
+
+          calendar = Path('lib/workout_calendar_screen.dart')
+          text = calendar.read_text(encoding='utf-8')
+          old = """class _LegendDot extends StatelessWidget {
+            const _LegendDot();
+
+            @override
+            Widget build(BuildContext context) {
+              return Container(
+                width: 8,
+                height: 8,
+                decoration: const BoxDecoration(
+                  color: Color(0xFF176B87),
+                  shape: BoxShape.circle,
+                ),
+              );
+            }
+          }"""
+          new = """class _LegendDot extends StatelessWidget {
+            final bool recovery;
+
+            const _LegendDot({this.recovery = false});
+
+            @override
+            Widget build(BuildContext context) {
+              return Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: recovery
+                      ? const Color(0xFF55721B)
+                      : const Color(0xFF176B87),
+                  shape: BoxShape.circle,
+                ),
+              );
+            }
+          }"""
+          if old not in text:
+              raise RuntimeError('Expected calendar legend anchor was not found')
+          calendar.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          recovery = Path('lib/recovery_day_screen.dart')
+          text = recovery.read_text(encoding='utf-8')
+          old = "final elapsed = finishedAt.difference(startedAt).inSeconds.clamp(1, 7200);"
+          new = "final elapsed = finishedAt.difference(startedAt).inSeconds.clamp(1, 7200).toInt();"
+          if old not in text:
+              raise RuntimeError('Expected recovery elapsed anchor was not found')
+          recovery.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
 
       - name: Commit generated integration
         run: |
@@ -30,6 +91,6 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add lib/today_dashboard.dart lib/workout_calendar_screen.dart
+          git add lib/today_dashboard.dart lib/workout_calendar_screen.dart lib/recovery_day_screen.dart
           git commit -m "Wire recovery days into home and calendar [recovery-ui-applied]"
           git push origin HEAD:feature/recovery-days
