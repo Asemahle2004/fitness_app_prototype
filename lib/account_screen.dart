@@ -137,7 +137,7 @@ class _LeanEatAccountScreenState extends State<LeanEatAccountScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            (profile?['display_name'] ?? profile?['full_name'] ?? 'LeanEat member') as String,
+                            (profile?['display_name'] ?? profile?['full_name'] ?? 'LeanIt member') as String,
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 23,

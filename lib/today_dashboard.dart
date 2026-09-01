@@ -108,7 +108,7 @@ class _LeanEatTodayDashboardState extends State<LeanEatTodayDashboard> {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = 'LeanEat could not refresh your programme. $error';
+        _error = 'LeanIt could not refresh your programme. $error';
       });
     }
   }
@@ -369,7 +369,7 @@ class _LeanEatTodayDashboardState extends State<LeanEatTodayDashboard> {
                   const SizedBox(width: 11),
                   const Expanded(
                     child: Text(
-                      'LeanEat',
+                      'LeanIt',
                       style: TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.w900,
