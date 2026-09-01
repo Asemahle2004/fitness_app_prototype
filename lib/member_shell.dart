@@ -12,6 +12,7 @@ import 'lean_eat_theme.dart';
 import 'leanit_control_center_screen.dart';
 import 'leanit_home_dashboard.dart';
 import 'leanit_preferences.dart';
+import 'notification_service.dart';
 import 'progress_screen.dart';
 import 'readiness_screen.dart';
 import 'strength_adaptation_cache.dart';
@@ -80,6 +81,7 @@ class _LeanEatMemberShellState extends State<LeanEatMemberShell>
       final preferences = await LeanItPreferencesStore(userScope: _scope).load();
       UnitDisplay.setSystem(training.unitSystem);
       LeanItPreferencesCache.set(preferences);
+      unawaited(LeanItNotificationService.apply(preferences));
       if (!mounted) return;
       setState(() => _preferences = preferences);
       if (preferences.automaticSync) unawaited(_flushPendingSync());
@@ -206,7 +208,6 @@ class _LeanEatMemberShellState extends State<LeanEatMemberShell>
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
     final scale = _preferences.largeText ? 1.15 : 1.0;
-    final minimumInteractive = _preferences.largerTapTargets ? 54.0 : 48.0;
 
     final content = Scaffold(
       backgroundColor: _preferences.highContrast
@@ -224,7 +225,7 @@ class _LeanEatMemberShellState extends State<LeanEatMemberShell>
             )
           : null,
       bottomNavigationBar: NavigationBar(
-        height: _preferences.largerTapTargets ? 84 : 80,
+        height: _preferences.largerTapTargets ? 88 : 80,
         selectedIndex: _index,
         onDestinationSelected: _selectDestination,
         destinations: _destinations,
@@ -232,18 +233,13 @@ class _LeanEatMemberShellState extends State<LeanEatMemberShell>
     );
 
     return MediaQuery(
-      data: media.copyWith(
-        textScaler: TextScaler.linear(scale),
-      ),
+      data: media.copyWith(textScaler: TextScaler.linear(scale)),
       child: Theme(
         data: Theme.of(context).copyWith(
           visualDensity: _preferences.largerTapTargets
               ? VisualDensity.comfortable
               : VisualDensity.standard,
           materialTapTargetSize: MaterialTapTargetSize.padded,
-          buttonTheme: Theme.of(context).buttonTheme.copyWith(
-                height: minimumInteractive,
-              ),
           pageTransitionsTheme: _preferences.reducedMotion
               ? const PageTransitionsTheme(
                   builders: <TargetPlatform, PageTransitionsBuilder>{
@@ -252,6 +248,7 @@ class _LeanEatMemberShellState extends State<LeanEatMemberShell>
                     TargetPlatform.linux: _NoMotionTransitionsBuilder(),
                     TargetPlatform.macOS: _NoMotionTransitionsBuilder(),
                     TargetPlatform.windows: _NoMotionTransitionsBuilder(),
+                    TargetPlatform.fuchsia: _NoMotionTransitionsBuilder(),
                   },
                 )
               : Theme.of(context).pageTransitionsTheme,
