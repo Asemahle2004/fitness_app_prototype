@@ -1,0 +1,35 @@
+name: Apply recovery day UI integration
+
+on:
+  push:
+    branches:
+      - feature/recovery-days
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[recovery-ui-applied]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/recovery-days
+          fetch-depth: 0
+
+      - name: Apply recovery day UI patch
+        run: python tools/apply_recovery_day_ui_patch.py
+
+      - name: Commit generated integration
+        run: |
+          if git diff --quiet; then
+            echo "No recovery UI changes required."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/today_dashboard.dart lib/workout_calendar_screen.dart
+          git commit -m "Wire recovery days into home and calendar [recovery-ui-applied]"
+          git push origin HEAD:feature/recovery-days
