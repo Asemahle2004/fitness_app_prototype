@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import 'guided_run_plan_screen.dart';
 import 'live_run_screen.dart';
 import 'run_log_form_screen.dart';
 import 'run_tracking_engine.dart';
@@ -27,6 +28,14 @@ class _RunTrackingScreenState extends State<RunTrackingScreen> {
   Future<void> _refresh() async {
     setState(() => _future = RunTrackingStore.load());
     await _future;
+  }
+
+  Future<void> _openGuidedRun() async {
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => const GuidedRunPlanScreen()),
+    );
+    if (changed == true) await _refresh();
   }
 
   Future<void> _openLiveRun() async {
@@ -112,7 +121,7 @@ class _RunTrackingScreenState extends State<RunTrackingScreen> {
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  'Track outdoor runs with foreground GPS or log treadmill/watch runs manually. LeanIt keeps your distance, time and pace history together.',
+                  'Choose a guided interval session, track a free outdoor run with foreground GPS, or log treadmill/watch runs manually. LeanIt keeps distance, time and pace history together.',
                   style: TextStyle(color: Color(0xFF627D98), height: 1.4),
                 ),
                 const SizedBox(height: 18),
@@ -120,20 +129,29 @@ class _RunTrackingScreenState extends State<RunTrackingScreen> {
                   children: [
                     Expanded(
                       child: FilledButton.icon(
-                        onPressed: _openLiveRun,
-                        icon: const Icon(Icons.gps_fixed),
-                        label: const Text('START GPS RUN'),
+                        onPressed: _openGuidedRun,
+                        icon: const Icon(Icons.timer_outlined),
+                        label: const Text('GUIDED RUN'),
                       ),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: _openManualRun,
-                        icon: const Icon(Icons.add_rounded),
-                        label: const Text('ADD RUN'),
+                        onPressed: _openLiveRun,
+                        icon: const Icon(Icons.gps_fixed),
+                        label: const Text('FREE GPS RUN'),
                       ),
                     ),
                   ],
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _openManualRun,
+                    icon: const Icon(Icons.add_rounded),
+                    label: const Text('ADD TREADMILL / WATCH RUN'),
+                  ),
                 ),
                 const SizedBox(height: 24),
                 Wrap(
@@ -342,7 +360,9 @@ class _RunTile extends StatelessWidget {
         leading: CircleAvatar(
           backgroundColor: const Color(0xFFE5F4F8),
           child: Icon(
-            run.source == 'gps' ? Icons.gps_fixed : Icons.edit_location_alt_outlined,
+            run.source.startsWith('gps')
+                ? Icons.gps_fixed
+                : Icons.edit_location_alt_outlined,
             color: const Color(0xFF176B87),
           ),
         ),

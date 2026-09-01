@@ -1,15 +1,19 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 
+import 'guided_run_engine.dart';
 import 'personal_record_celebration.dart';
 import 'personal_record_engine.dart';
 import 'run_tracking_engine.dart';
 import 'run_tracking_store.dart';
 
 class LiveRunScreen extends StatefulWidget {
-  const LiveRunScreen({super.key});
+  final GuidedRunPlan? guidedPlan;
+
+  const LiveRunScreen({super.key, this.guidedPlan});
 
   @override
   State<LiveRunScreen> createState() => _LiveRunScreenState();
@@ -25,7 +29,17 @@ class _LiveRunScreenState extends State<LiveRunScreen> {
   bool _running = false;
   bool _paused = false;
   bool _starting = false;
+  bool _soundCues = true;
+  bool _hapticCues = true;
+  bool _guidedCompleteHandled = false;
+  int _lastGuidedStepIndex = -2;
   String _gpsStatus = 'Ready';
+
+  GuidedRunProgress? get _guidedProgress {
+    final plan = widget.guidedPlan;
+    if (plan == null) return null;
+    return GuidedRunEngine.progressFor(plan, _elapsedSeconds);
+  }
 
   @override
   void dispose() {
@@ -75,10 +89,17 @@ class _LiveRunScreenState extends State<LiveRunScreen> {
       _distanceMeters = 0;
       _previousPosition = null;
       _paused = false;
+      _guidedCompleteHandled = false;
+      _lastGuidedStepIndex = -2;
       _running = true;
       _startTimer();
       await _subscribeGps();
-      if (mounted) setState(() => _gpsStatus = 'GPS tracking active');
+      if (mounted) {
+        setState(() => _gpsStatus = 'GPS tracking active');
+        if (widget.guidedPlan != null) {
+          _handleGuidedTick(-1);
+        }
+      }
     } catch (_) {
       if (mounted) {
         setState(() {
@@ -96,8 +117,66 @@ class _LiveRunScreenState extends State<LiveRunScreen> {
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted || !_running || _paused) return;
+      final previousElapsed = _elapsedSeconds;
       setState(() => _elapsedSeconds += 1);
+      _handleGuidedTick(previousElapsed);
     });
+  }
+
+  void _emitGuidedCue({bool countdown = false}) {
+    if (_soundCues) {
+      SystemSound.play(SystemSoundType.click);
+    }
+    if (_hapticCues) {
+      if (countdown) {
+        HapticFeedback.selectionClick();
+      } else {
+        HapticFeedback.mediumImpact();
+      }
+    }
+  }
+
+  void _handleGuidedTick(int previousElapsed) {
+    final plan = widget.guidedPlan;
+    if (plan == null || _guidedCompleteHandled || !mounted) return;
+
+    final progress = GuidedRunEngine.progressFor(plan, _elapsedSeconds);
+    final previous = previousElapsed < 0
+        ? null
+        : GuidedRunEngine.progressFor(plan, previousElapsed);
+
+    if (progress.complete) {
+      unawaited(_completeGuidedSession());
+      return;
+    }
+
+    if (progress.stepIndex != _lastGuidedStepIndex) {
+      _lastGuidedStepIndex = progress.stepIndex;
+      _emitGuidedCue();
+    } else if (progress.secondsRemainingInStep <= 3 &&
+        progress.secondsRemainingInStep > 0 &&
+        previous?.secondsRemainingInStep != progress.secondsRemainingInStep) {
+      _emitGuidedCue(countdown: true);
+    }
+  }
+
+  Future<void> _completeGuidedSession() async {
+    if (_guidedCompleteHandled || !mounted) return;
+    _guidedCompleteHandled = true;
+    _emitGuidedCue();
+    await _positionSubscription?.cancel();
+    _positionSubscription = null;
+    if (!mounted) return;
+    setState(() {
+      _paused = true;
+      _previousPosition = null;
+      _gpsStatus = 'Guided session complete';
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Guided run complete. Tap FINISH to review and save it.'),
+      ),
+    );
   }
 
   Future<void> _subscribeGps() async {
@@ -168,7 +247,7 @@ class _LiveRunScreenState extends State<LiveRunScreen> {
   }
 
   Future<void> _resume() async {
-    if (!_running || !_paused) return;
+    if (!_running || !_paused || _guidedCompleteHandled) return;
     setState(() {
       _paused = false;
       _gpsStatus = 'Reconnecting GPS...';
@@ -220,12 +299,16 @@ class _LiveRunScreenState extends State<LiveRunScreen> {
     await _positionSubscription?.cancel();
     _positionSubscription = null;
     final startedAt = _startedAt ?? DateTime.now();
+    final guidedPlan = widget.guidedPlan;
     final record = RunRecord(
       id: 'run_${DateTime.now().microsecondsSinceEpoch}',
       startedAt: startedAt,
       durationSeconds: _elapsedSeconds,
       distanceMeters: _distanceMeters,
-      source: 'gps',
+      source: guidedPlan == null ? 'gps' : 'gps_guided',
+      notes: guidedPlan == null
+          ? null
+          : 'Guided: ${guidedPlan.title} • ${_guidedCompleteHandled ? 'completed' : 'ended early'}',
     );
     final previous = await RunTrackingStore.load();
     final achievements = PersonalRecordEngine.newRunRecords(
@@ -239,6 +322,123 @@ class _LiveRunScreenState extends State<LiveRunScreen> {
     Navigator.pop(context, true);
   }
 
+  Widget _guidedRunCard() {
+    final plan = widget.guidedPlan!;
+    final progress = _guidedProgress!;
+    final step = progress.step;
+    final next = GuidedRunEngine.nextStep(plan, progress);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.headphones_rounded, color: Colors.white70),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  progress.complete
+                      ? 'GUIDED SESSION COMPLETE'
+                      : GuidedRunEngine.phaseLabel(step!.type),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+              ),
+              if (!progress.complete)
+                Text(
+                  '${progress.stepIndex + 1}/${plan.steps.length}',
+                  style: const TextStyle(color: Colors.white60),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (progress.complete)
+            const Text(
+              'You reached the end of the guided session. Review and save your run when ready.',
+              style: TextStyle(color: Colors.white70, height: 1.4),
+            )
+          else ...[
+            Text(
+              step!.label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              step.instruction,
+              style: const TextStyle(color: Colors.white70, height: 1.35),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Text(
+                  RunTrackingEngine.formatDuration(
+                    progress.secondsRemainingInStep,
+                  ),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 30,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const Spacer(),
+                if (next != null)
+                  Flexible(
+                    child: Text(
+                      'Next: ${next.label}',
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(color: Colors.white60, fontSize: 12),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            LinearProgressIndicator(
+              value: progress.stepProgress,
+              minHeight: 6,
+              borderRadius: BorderRadius.circular(10),
+              backgroundColor: Colors.white12,
+              color: Colors.white,
+            ),
+          ],
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              FilterChip(
+                selected: _soundCues,
+                onSelected: (value) => setState(() => _soundCues = value),
+                avatar: const Icon(Icons.volume_up_outlined, size: 18),
+                label: const Text('Sound cues'),
+              ),
+              FilterChip(
+                selected: _hapticCues,
+                onSelected: (value) => setState(() => _hapticCues = value),
+                avatar: const Icon(Icons.vibration_rounded, size: 18),
+                label: const Text('Vibration'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final pace = RunTrackingEngine.paceSecondsPerKm(
@@ -249,7 +449,7 @@ class _LiveRunScreenState extends State<LiveRunScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFF102A43),
       appBar: AppBar(
-        title: const Text('Run tracker'),
+        title: Text(widget.guidedPlan?.title ?? 'Run tracker'),
         backgroundColor: const Color(0xFF102A43),
         foregroundColor: Colors.white,
       ),
@@ -281,6 +481,10 @@ class _LiveRunScreenState extends State<LiveRunScreen> {
                   ],
                 ),
               ),
+              if (widget.guidedPlan != null) ...[
+                const SizedBox(height: 14),
+                _guidedRunCard(),
+              ],
               const Spacer(),
               _Metric(
                 label: 'DISTANCE',
@@ -320,7 +524,13 @@ class _LiveRunScreenState extends State<LiveRunScreen> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.play_arrow_rounded),
-                    label: Text(_starting ? 'STARTING GPS...' : 'START RUN'),
+                    label: Text(
+                      _starting
+                          ? 'STARTING GPS...'
+                          : widget.guidedPlan == null
+                              ? 'START RUN'
+                              : 'START GUIDED RUN',
+                    ),
                   ),
                 )
               else ...[
@@ -328,11 +538,23 @@ class _LiveRunScreenState extends State<LiveRunScreen> {
                   children: [
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: _paused ? _resume : _pause,
+                        onPressed: _guidedCompleteHandled
+                            ? null
+                            : (_paused ? _resume : _pause),
                         icon: Icon(
-                          _paused ? Icons.play_arrow_rounded : Icons.pause_rounded,
+                          _guidedCompleteHandled
+                              ? Icons.check_rounded
+                              : _paused
+                                  ? Icons.play_arrow_rounded
+                                  : Icons.pause_rounded,
                         ),
-                        label: Text(_paused ? 'RESUME' : 'PAUSE'),
+                        label: Text(
+                          _guidedCompleteHandled
+                              ? 'COMPLETE'
+                              : _paused
+                                  ? 'RESUME'
+                                  : 'PAUSE',
+                        ),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.white,
                           side: const BorderSide(color: Colors.white54),
