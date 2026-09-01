@@ -30,6 +30,6 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add lib/programme_engine.dart lib/today_dashboard.dart
-          git commit -m "Surface deeper programme personalisation [programme-personalisation-v2-applied]"
+          git add lib/workout_engine.dart
+          git commit -m "Fit 20 minute workouts to profile duration [programme-personalisation-v2-applied]"
           git push origin HEAD:feature/programme-personalisation-v2
