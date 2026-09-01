@@ -10,6 +10,10 @@ class RunRecord {
   final double distanceMeters;
   final String source;
   final String? notes;
+  final String? guidedPlanId;
+  final int? guidedPlannedSeconds;
+  final bool? guidedCompleted;
+  final String? perceivedEffort;
 
   const RunRecord({
     required this.id,
@@ -18,6 +22,10 @@ class RunRecord {
     required this.distanceMeters,
     this.source = 'manual',
     this.notes,
+    this.guidedPlanId,
+    this.guidedPlannedSeconds,
+    this.guidedCompleted,
+    this.perceivedEffort,
   });
 
   double get distanceKm => distanceMeters / 1000;
@@ -27,6 +35,15 @@ class RunRecord {
     return durationSeconds / distanceKm;
   }
 
+  bool get isGuided => guidedPlanId != null || source == 'gps_guided';
+
+  double? get guidedCompletionRatio {
+    if (guidedCompleted == true) return 1;
+    final planned = guidedPlannedSeconds;
+    if (planned == null || planned <= 0) return null;
+    return (durationSeconds / planned).clamp(0, 1).toDouble();
+  }
+
   RunRecord copyWith({
     String? id,
     DateTime? startedAt,
@@ -34,6 +51,10 @@ class RunRecord {
     double? distanceMeters,
     String? source,
     String? notes,
+    String? guidedPlanId,
+    int? guidedPlannedSeconds,
+    bool? guidedCompleted,
+    String? perceivedEffort,
   }) {
     return RunRecord(
       id: id ?? this.id,
@@ -42,6 +63,10 @@ class RunRecord {
       distanceMeters: distanceMeters ?? this.distanceMeters,
       source: source ?? this.source,
       notes: notes ?? this.notes,
+      guidedPlanId: guidedPlanId ?? this.guidedPlanId,
+      guidedPlannedSeconds: guidedPlannedSeconds ?? this.guidedPlannedSeconds,
+      guidedCompleted: guidedCompleted ?? this.guidedCompleted,
+      perceivedEffort: perceivedEffort ?? this.perceivedEffort,
     );
   }
 
@@ -52,6 +77,13 @@ class RunRecord {
         'distance_meters': distanceMeters,
         'source': source,
         if (notes != null && notes!.trim().isNotEmpty) 'notes': notes!.trim(),
+        if (guidedPlanId != null && guidedPlanId!.isNotEmpty)
+          'guided_plan_id': guidedPlanId,
+        if (guidedPlannedSeconds != null)
+          'guided_planned_seconds': guidedPlannedSeconds,
+        if (guidedCompleted != null) 'guided_completed': guidedCompleted,
+        if (perceivedEffort != null && perceivedEffort!.isNotEmpty)
+          'perceived_effort': perceivedEffort,
       };
 
   factory RunRecord.fromJson(Map<String, dynamic> json) {
@@ -64,6 +96,11 @@ class RunRecord {
       distanceMeters: (json['distance_meters'] as num?)?.toDouble() ?? 0,
       source: json['source'] as String? ?? 'manual',
       notes: json['notes'] as String?,
+      guidedPlanId: json['guided_plan_id'] as String?,
+      guidedPlannedSeconds:
+          (json['guided_planned_seconds'] as num?)?.round(),
+      guidedCompleted: json['guided_completed'] as bool?,
+      perceivedEffort: json['perceived_effort'] as String?,
     );
   }
 }
