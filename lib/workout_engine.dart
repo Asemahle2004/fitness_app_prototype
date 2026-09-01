@@ -197,6 +197,7 @@ class WorkoutEngine {
     int maxExercises;
     switch (sessionDuration) {
       case '15 min':
+      case '20 min':
         maxExercises = 3;
         break;
       case '30 min':
