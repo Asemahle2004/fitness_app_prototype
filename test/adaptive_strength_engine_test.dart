@@ -144,7 +144,7 @@ void main() {
 
   test('multiple declining exercises trigger deload under meaningful load', () {
     final previous = weekSets(
-      DateTime(2026, 8, 27),
+      DateTime(2026, 8, 24),
       benchWeight: 60,
       rowWeight: 50,
     );
@@ -155,7 +155,7 @@ void main() {
     );
     final result = StrengthAdaptationEngine.analyse(
       workouts: [
-        workout(DateTime(2026, 8, 27)),
+        workout(DateTime(2026, 8, 24)),
         workout(DateTime(2026, 9, 1)),
       ],
       sets: [...previous, ...current],
@@ -169,7 +169,7 @@ void main() {
 
   test('stable load and improving performance allow conservative progression', () {
     final previous = weekSets(
-      DateTime(2026, 8, 27),
+      DateTime(2026, 8, 24),
       benchWeight: 50,
       rowWeight: 40,
     );
@@ -180,7 +180,7 @@ void main() {
     );
     final result = StrengthAdaptationEngine.analyse(
       workouts: [
-        workout(DateTime(2026, 8, 27)),
+        workout(DateTime(2026, 8, 24)),
         workout(DateTime(2026, 9, 1), effort: 'about_right'),
       ],
       sets: [...previous, ...current],
