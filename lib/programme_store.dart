@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'adaptive_programme_engine.dart';
@@ -41,12 +43,35 @@ class StoredProgramme {
     if (next < programme.sessions.length) return programme.sessions[next];
     return programme.sessions.first;
   }
+
+  StoredProgramme copyWith({
+    GeneratedProgramme? programme,
+    String? profileSignature,
+    int? currentWeek,
+    int? currentSessionIndex,
+    int? activeSessionIndex,
+    DateTime? activeStartedAt,
+    bool clearActiveSession = false,
+  }) {
+    return StoredProgramme(
+      programme: programme ?? this.programme,
+      profileSignature: profileSignature ?? this.profileSignature,
+      currentWeek: currentWeek ?? this.currentWeek,
+      currentSessionIndex: currentSessionIndex ?? this.currentSessionIndex,
+      activeSessionIndex:
+          clearActiveSession ? null : (activeSessionIndex ?? this.activeSessionIndex),
+      activeStartedAt:
+          clearActiveSession ? null : (activeStartedAt ?? this.activeStartedAt),
+    );
+  }
 }
 
 class ProgrammeStore {
   final SupabaseClient client;
 
   const ProgrammeStore(this.client);
+
+  static const _localKeyPrefix = 'leanit_current_programme_v1';
 
   static Set<String> _stringSet(dynamic value) {
     if (value is! List) return <String>{};
@@ -58,7 +83,11 @@ class ProgrammeStore {
     return items;
   }
 
-  static String _string(Map<String, dynamic> profile, String key, String fallback) {
+  static String _string(
+    Map<String, dynamic> profile,
+    String key,
+    String fallback,
+  ) {
     final value = profile[key]?.toString().trim();
     return value == null || value.isEmpty ? fallback : value;
   }
@@ -99,7 +128,9 @@ class ProgrammeStore {
     return jsonEncode(snapshot);
   }
 
-  static List<Map<String, dynamic>> _sessionsToJson(List<PlannedSession> sessions) {
+  static List<Map<String, dynamic>> _sessionsToJson(
+    List<PlannedSession> sessions,
+  ) {
     return sessions
         .map(
           (session) => <String, dynamic>{
@@ -149,8 +180,28 @@ class ProgrammeStore {
       currentWeek: (row['current_week'] as num?)?.toInt() ?? 1,
       currentSessionIndex: (row['current_session_index'] as num?)?.toInt() ?? 0,
       activeSessionIndex: (row['active_session_index'] as num?)?.toInt(),
-      activeStartedAt: DateTime.tryParse(row['active_started_at']?.toString() ?? ''),
+      activeStartedAt:
+          DateTime.tryParse(row['active_started_at']?.toString() ?? ''),
     );
+  }
+
+  static Map<String, dynamic> _rowFor(
+    StoredProgramme stored,
+    String userId,
+  ) {
+    return <String, dynamic>{
+      'user_id': userId,
+      'profile_signature': stored.profileSignature,
+      'goal': stored.programme.goal,
+      'structure': stored.programme.structure,
+      'explanation': stored.programme.explanation,
+      'sessions': _sessionsToJson(stored.programme.sessions),
+      'current_week': stored.currentWeek,
+      'current_session_index': stored.currentSessionIndex,
+      'active_session_index': stored.activeSessionIndex,
+      'active_started_at': stored.activeStartedAt?.toIso8601String(),
+      'updated_at': DateTime.now().toIso8601String(),
+    };
   }
 
   Future<StoredProgramme> ensureForProfile(Map<String, dynamic> profile) async {
@@ -158,54 +209,7 @@ class ProgrammeStore {
     final signature = signatureForProfile(profile);
     final user = client.auth.currentUser;
 
-    if (user == null) {
-      return StoredProgramme(
-        programme: generated,
-        profileSignature: signature,
-        currentWeek: 1,
-        currentSessionIndex: 0,
-        activeSessionIndex: null,
-        activeStartedAt: null,
-      );
-    }
-
-    final existing = await client
-        .from('current_programmes')
-        .select()
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-    if (existing != null) {
-      final stored = _fromRow(Map<String, dynamic>.from(existing));
-      if (stored.profileSignature == signature && stored.hasSessions) {
-        await ProgrammeAdaptationStore.ensureWeek(stored.currentWeek);
-        return stored;
-      }
-    }
-
-    final now = DateTime.now().toIso8601String();
-    final row = <String, dynamic>{
-      'user_id': user.id,
-      'profile_signature': signature,
-      'goal': generated.goal,
-      'structure': generated.structure,
-      'explanation': generated.explanation,
-      'sessions': _sessionsToJson(generated.sessions),
-      'current_week': 1,
-      'current_session_index': 0,
-      'active_session_index': null,
-      'active_started_at': null,
-      'updated_at': now,
-    };
-
-    await client.from('current_programmes').upsert(row);
-    await ProgrammeAdaptationStore.resetForWeek(
-      1,
-      startedAt: DateTime.now(),
-      clearEvents: true,
-    );
-
-    return StoredProgramme(
+    final fresh = StoredProgramme(
       programme: generated,
       profileSignature: signature,
       currentWeek: 1,
@@ -213,38 +217,95 @@ class ProgrammeStore {
       activeSessionIndex: null,
       activeStartedAt: null,
     );
+
+    if (user == null) return fresh;
+
+    final local = await _loadLocal(user.id);
+    if (local != null &&
+        local.profileSignature == signature &&
+        local.hasSessions) {
+      await ProgrammeAdaptationStore.ensureWeek(local.currentWeek);
+      unawaited(_reconcileCloud(user.id, local));
+      return local;
+    }
+
+    try {
+      final existing = await client
+          .from('current_programmes')
+          .select()
+          .eq('user_id', user.id)
+          .maybeSingle();
+      if (existing != null) {
+        final stored = _fromRow(Map<String, dynamic>.from(existing));
+        if (stored.profileSignature == signature && stored.hasSessions) {
+          await _saveLocal(user.id, stored);
+          await ProgrammeAdaptationStore.ensureWeek(stored.currentWeek);
+          return stored;
+        }
+      }
+    } catch (_) {
+      // No connection: the locally generated profile-based programme below is
+      // still fully usable and will be synced when connectivity returns.
+    }
+
+    await _saveLocal(user.id, fresh);
+    unawaited(_upsertCloud(user.id, fresh));
+    await ProgrammeAdaptationStore.resetForWeek(
+      1,
+      startedAt: DateTime.now(),
+      clearEvents: true,
+    );
+    return fresh;
   }
 
   Future<StoredProgramme?> loadCurrent() async {
     final user = client.auth.currentUser;
     if (user == null) return null;
-    final row = await client
-        .from('current_programmes')
-        .select()
-        .eq('user_id', user.id)
-        .maybeSingle();
-    if (row == null) return null;
-    return _fromRow(Map<String, dynamic>.from(row));
+
+    final local = await _loadLocal(user.id);
+    if (local != null) {
+      unawaited(_reconcileCloud(user.id, local));
+      return local;
+    }
+
+    try {
+      final row = await client
+          .from('current_programmes')
+          .select()
+          .eq('user_id', user.id)
+          .maybeSingle();
+      if (row == null) return null;
+      final stored = _fromRow(Map<String, dynamic>.from(row));
+      await _saveLocal(user.id, stored);
+      return stored;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> markSessionStarted(int sessionIndex) async {
     final user = client.auth.currentUser;
     if (user == null) return;
-    await client.from('current_programmes').update({
-      'active_session_index': sessionIndex,
-      'active_started_at': DateTime.now().toIso8601String(),
-      'updated_at': DateTime.now().toIso8601String(),
-    }).eq('user_id', user.id);
+    final current = await loadCurrent();
+    if (current == null) return;
+
+    final updated = current.copyWith(
+      activeSessionIndex: sessionIndex,
+      activeStartedAt: DateTime.now(),
+    );
+    await _saveLocal(user.id, updated);
+    unawaited(_upsertCloud(user.id, updated));
   }
 
   Future<void> clearActiveSession() async {
     final user = client.auth.currentUser;
     if (user == null) return;
-    await client.from('current_programmes').update({
-      'active_session_index': null,
-      'active_started_at': null,
-      'updated_at': DateTime.now().toIso8601String(),
-    }).eq('user_id', user.id);
+    final current = await loadCurrent();
+    if (current == null) return;
+
+    final updated = current.copyWith(clearActiveSession: true);
+    await _saveLocal(user.id, updated);
+    unawaited(_upsertCloud(user.id, updated));
   }
 
   Future<void> completeSession(
@@ -253,7 +314,8 @@ class ProgrammeStore {
   }) async {
     final current = await loadCurrent();
     if (current == null || current.programme.sessions.isEmpty) return;
-    if (completedIndex < 0 || completedIndex >= current.programme.sessions.length) {
+    if (completedIndex < 0 ||
+        completedIndex >= current.programme.sessions.length) {
       return;
     }
 
@@ -277,7 +339,8 @@ class ProgrammeStore {
   }) async {
     final current = await loadCurrent();
     if (current == null || current.programme.sessions.isEmpty) return;
-    if (skippedIndex < 0 || skippedIndex >= current.programme.sessions.length) {
+    if (skippedIndex < 0 ||
+        skippedIndex >= current.programme.sessions.length) {
       return;
     }
     if (current.activeSessionIndex != null) return;
@@ -309,20 +372,19 @@ class ProgrammeStore {
     var nextWeek = current.currentWeek;
 
     if (nextIndex < count) {
-      await client.from('current_programmes').update({
-        'current_session_index': nextIndex,
-        'active_session_index': null,
-        'active_started_at': null,
-        'updated_at': DateTime.now().toIso8601String(),
-      }).eq('user_id', user.id);
+      final updated = current.copyWith(
+        currentSessionIndex: nextIndex,
+        clearActiveSession: true,
+      );
+      await _saveLocal(user.id, updated);
+      unawaited(_upsertCloud(user.id, updated));
       return;
     }
 
     nextIndex = 0;
     nextWeek += 1;
-    var nextProgramme = profile == null
-        ? current.programme
-        : programmeFromProfile(profile);
+    var nextProgramme =
+        profile == null ? current.programme : programmeFromProfile(profile);
     String? adaptiveMode;
     String? adaptiveSummary;
 
@@ -337,23 +399,20 @@ class ProgrammeStore {
         adaptiveMode = result.decision.mode.name;
         adaptiveSummary = result.decision.summary;
       } catch (_) {
-        // If adaptation data is unavailable, fall back to the safe static
-        // profile-generated programme rather than blocking the week transition.
         nextProgramme = programmeFromProfile(profile);
       }
     }
 
-    await client.from('current_programmes').update({
-      'goal': nextProgramme.goal,
-      'structure': nextProgramme.structure,
-      'explanation': nextProgramme.explanation,
-      'sessions': _sessionsToJson(nextProgramme.sessions),
-      'current_week': nextWeek,
-      'current_session_index': nextIndex,
-      'active_session_index': null,
-      'active_started_at': null,
-      'updated_at': DateTime.now().toIso8601String(),
-    }).eq('user_id', user.id);
+    final updated = StoredProgramme(
+      programme: nextProgramme,
+      profileSignature: current.profileSignature,
+      currentWeek: nextWeek,
+      currentSessionIndex: nextIndex,
+      activeSessionIndex: null,
+      activeStartedAt: null,
+    );
+    await _saveLocal(user.id, updated);
+    unawaited(_upsertCloud(user.id, updated));
 
     await ProgrammeAdaptationStore.resetForWeek(
       nextWeek,
@@ -362,4 +421,63 @@ class ProgrammeStore {
       previousSummary: adaptiveSummary,
     );
   }
+
+  Future<StoredProgramme?> _loadLocal(String userId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_localKey(userId));
+    if (raw == null || raw.trim().isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) {
+        return _fromRow(Map<String, dynamic>.from(decoded));
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<void> _saveLocal(String userId, StoredProgramme stored) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _localKey(userId),
+      jsonEncode(_rowFor(stored, userId)),
+    );
+  }
+
+  Future<void> _upsertCloud(String userId, StoredProgramme stored) async {
+    try {
+      await client.from('current_programmes').upsert(_rowFor(stored, userId));
+    } catch (_) {
+      // The local programme is authoritative while offline.
+    }
+  }
+
+  Future<void> _reconcileCloud(String userId, StoredProgramme local) async {
+    try {
+      final row = await client
+          .from('current_programmes')
+          .select()
+          .eq('user_id', userId)
+          .maybeSingle();
+      if (row == null) {
+        await _upsertCloud(userId, local);
+        return;
+      }
+
+      final cloud = _fromRow(Map<String, dynamic>.from(row));
+      final cloudAhead = cloud.profileSignature == local.profileSignature &&
+          (cloud.currentWeek > local.currentWeek ||
+              (cloud.currentWeek == local.currentWeek &&
+                  cloud.currentSessionIndex > local.currentSessionIndex));
+
+      if (cloudAhead) {
+        await _saveLocal(userId, cloud);
+      } else {
+        await _upsertCloud(userId, local);
+      }
+    } catch (_) {
+      // No network. Nothing to do; local state is already usable.
+    }
+  }
+
+  static String _localKey(String userId) => '${_localKeyPrefix}_$userId';
 }

@@ -190,35 +190,194 @@ class WorkoutEngine {
     GeneratedWorkout workout,
     String? sessionDuration,
   ) {
-    if (sessionDuration == null || workout.exercises.length <= 3) {
-      return workout;
+    final targetSeconds = _targetDurationSeconds(sessionDuration);
+    if (targetSeconds == null || workout.exercises.isEmpty) return workout;
+
+    final fixedSeconds = _preparationAndCooldownSeconds(targetSeconds);
+
+    // A single continuous running/cardio block can use the remaining session
+    // budget directly instead of pretending a fixed 20 minute block fills a
+    // 45 or 60 minute session.
+    if (workout.exercises.length == 1 &&
+        workout.exercises.first.isSingleDurationBlock &&
+        workout.exercises.first.reps.toLowerCase().contains('min')) {
+      final exercise = workout.exercises.first;
+      final availableMinutes = ((targetSeconds - fixedSeconds) / 60)
+          .round()
+          .clamp(5, 120)
+          .toInt();
+      final qualifier = _durationQualifier(exercise.reps);
+      final adjusted = exercise.copyWith(
+        reps: '$availableMinutes min${qualifier.isEmpty ? '' : ' $qualifier'}',
+      );
+      return GeneratedWorkout(title: workout.title, exercises: [adjusted]);
     }
 
-    int maxExercises;
-    switch (sessionDuration) {
-      case '15 min':
-      case '20 min':
-        maxExercises = 3;
-        break;
-      case '30 min':
-        maxExercises = 4;
-        break;
-      case '45 min':
-        maxExercises = 5;
-        break;
-      case '60 min':
-        maxExercises = 6;
-        break;
-      default:
-        maxExercises = workout.exercises.length;
+    final selected = <ExercisePrescription>[];
+    var usedSeconds = fixedSeconds;
+
+    for (final exercise in workout.exercises) {
+      final cost = _exerciseEstimatedSeconds(
+        exercise,
+        includeTransition: selected.isNotEmpty,
+      );
+      if (selected.isEmpty || usedSeconds + cost <= targetSeconds + 45) {
+        selected.add(exercise);
+        usedSeconds += cost;
+      }
     }
 
-    if (workout.exercises.length <= maxExercises) return workout;
+    // Keep a useful minimum when a very short session contains expensive
+    // prescriptions. Sets are reduced below if necessary.
+    for (final exercise in workout.exercises) {
+      if (selected.length >= 2 || selected.contains(exercise)) continue;
+      selected.add(exercise);
+      usedSeconds += _exerciseEstimatedSeconds(
+        exercise,
+        includeTransition: selected.length > 1,
+      );
+    }
 
-    return GeneratedWorkout(
-      title: workout.title,
-      exercises: workout.exercises.take(maxExercises).toList(growable: false),
-    );
+    var tuned = List<ExercisePrescription>.from(selected);
+
+    // Use spare time for an additional working set on existing movements,
+    // capped at four sets. This keeps 45/60 minute plans close to the selected
+    // duration without padding sessions with fake waiting time.
+    var madeChange = true;
+    while (targetSeconds - usedSeconds > 90 && madeChange) {
+      madeChange = false;
+      for (var i = 0; i < tuned.length; i += 1) {
+        final exercise = tuned[i];
+        if (exercise.isSingleDurationBlock || exercise.sets >= 4) continue;
+        final extra = _additionalSetSeconds(exercise);
+        if (usedSeconds + extra <= targetSeconds + 45) {
+          tuned[i] = exercise.copyWith(sets: exercise.sets + 1);
+          usedSeconds += extra;
+          madeChange = true;
+        }
+        if (targetSeconds - usedSeconds <= 90) break;
+      }
+    }
+
+    // If the minimum selection slightly overran a short budget, reduce the
+    // least-priority later exercises to two sets before dropping an exercise.
+    for (var i = tuned.length - 1;
+        i >= 0 && usedSeconds > targetSeconds + 60;
+        i -= 1) {
+      final exercise = tuned[i];
+      if (exercise.isSingleDurationBlock || exercise.sets <= 2) continue;
+      final saved = _additionalSetSeconds(exercise);
+      tuned[i] = exercise.copyWith(sets: exercise.sets - 1);
+      usedSeconds -= saved;
+    }
+
+    while (tuned.length > 2 && usedSeconds > targetSeconds + 60) {
+      final removed = tuned.removeLast();
+      usedSeconds -= _exerciseEstimatedSeconds(
+        removed,
+        includeTransition: tuned.isNotEmpty,
+      );
+    }
+
+    return GeneratedWorkout(title: workout.title, exercises: tuned);
+  }
+
+  /// Estimated wall-clock workout time including the guided preparation and
+  /// cool-down phases, working sets, prescribed rests and exercise transitions.
+  static int estimateDurationSeconds(
+    GeneratedWorkout workout, {
+    String? sessionDuration,
+  }) {
+    final target = _targetDurationSeconds(sessionDuration);
+    var total = target == null ? 0 : _preparationAndCooldownSeconds(target);
+    for (var i = 0; i < workout.exercises.length; i += 1) {
+      total += _exerciseEstimatedSeconds(
+        workout.exercises[i],
+        includeTransition: i > 0,
+      );
+    }
+    return total;
+  }
+
+  static int? _targetDurationSeconds(String? label) {
+    if (label == null) return null;
+    final match = RegExp(r'(\d+)').firstMatch(label);
+    final minutes = int.tryParse(match?.group(1) ?? '');
+    return minutes == null ? null : minutes * 60;
+  }
+
+  static int _preparationAndCooldownSeconds(int targetSeconds) {
+    if (targetSeconds <= 15 * 60) return 5 * 60;
+    if (targetSeconds <= 20 * 60) return 7 * 60;
+    if (targetSeconds <= 30 * 60) return 9 * 60;
+    if (targetSeconds <= 45 * 60) return 12 * 60;
+    return 15 * 60;
+  }
+
+  static int _exerciseEstimatedSeconds(
+    ExercisePrescription exercise, {
+    required bool includeTransition,
+  }) {
+    final transition = includeTransition ? 40 : 0;
+    if (exercise.isSingleDurationBlock) {
+      final minutes = _minutesFromTarget(exercise.reps);
+      if (minutes != null) return (minutes * 60).round() + transition;
+    }
+
+    final workPerSet = _workSecondsPerSet(exercise.reps);
+    final rest = _restSeconds(exercise.rest);
+    final betweenSetRest = exercise.sets <= 1 ? 0 : (exercise.sets - 1) * rest;
+    return (exercise.sets * workPerSet) + betweenSetRest + transition;
+  }
+
+  static int _additionalSetSeconds(ExercisePrescription exercise) {
+    return _workSecondsPerSet(exercise.reps) + _restSeconds(exercise.rest);
+  }
+
+  static int _workSecondsPerSet(String target) {
+    final lower = target.toLowerCase();
+    final seconds = RegExp(r'(\d+)\s*[–-]\s*(\d+)\s*sec').firstMatch(lower);
+    if (seconds != null) {
+      return ((int.parse(seconds.group(1)!) + int.parse(seconds.group(2)!)) / 2)
+          .round();
+    }
+    final singleSeconds = RegExp(r'(\d+)\s*sec').firstMatch(lower);
+    if (singleSeconds != null) return int.parse(singleSeconds.group(1)!);
+
+    final numbers = RegExp(r'\d+').allMatches(lower).map((m) => int.parse(m.group(0)!)).toList();
+    var reps = numbers.isEmpty
+        ? 10.0
+        : numbers.length >= 2
+            ? (numbers[0] + numbers[1]) / 2
+            : numbers.first.toDouble();
+    if (lower.contains('each side') || lower.contains('each leg')) reps *= 1.7;
+    return (reps * 4).round().clamp(25, 90).toInt();
+  }
+
+  static int _restSeconds(String rest) {
+    final lower = rest.toLowerCase();
+    final seconds = RegExp(r'(\d+)\s*sec').firstMatch(lower);
+    if (seconds != null) return int.parse(seconds.group(1)!);
+    final minutes = RegExp(r'(\d+)\s*min').firstMatch(lower);
+    if (minutes != null) return int.parse(minutes.group(1)!) * 60;
+    return 60;
+  }
+
+  static double? _minutesFromTarget(String target) {
+    final lower = target.toLowerCase();
+    final range = RegExp(r'(\d+)\s*[–-]\s*(\d+)\s*min').firstMatch(lower);
+    if (range != null) {
+      return (int.parse(range.group(1)!) + int.parse(range.group(2)!)) / 2;
+    }
+    final single = RegExp(r'(\d+)\s*min').firstMatch(lower);
+    if (single != null) return int.parse(single.group(1)!).toDouble();
+    return null;
+  }
+
+  static String _durationQualifier(String target) {
+    final match = RegExp(r'\d+(?:\s*[–-]\s*\d+)?\s*min\s*(.*)', caseSensitive: false)
+        .firstMatch(target);
+    return match?.group(1)?.trim() ?? '';
   }
 
   static const Set<String> _runningTitles = {

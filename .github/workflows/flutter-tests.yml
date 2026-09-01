@@ -30,3 +30,6 @@ jobs:
 
       - name: Compile web app
         run: flutter build web
+
+      - name: Compile Android APK
+        run: flutter build apk --debug

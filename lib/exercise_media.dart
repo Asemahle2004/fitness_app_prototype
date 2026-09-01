@@ -118,6 +118,9 @@ class _ExerciseMediaState extends State<ExerciseMedia> {
       imageUrl: imageUrl,
       fit: widget.fit,
       fadeInDuration: const Duration(milliseconds: 120),
+      maxWidthDiskCache: widget.compact ? 360 : 720,
+      maxHeightDiskCache: widget.compact ? 360 : 720,
+      memCacheWidth: widget.compact ? 360 : 720,
       placeholder: (_, __) => _loadingPhoto(),
       errorWidget: (_, __, ___) => _fallback(),
     );

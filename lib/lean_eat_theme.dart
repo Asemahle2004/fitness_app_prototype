@@ -55,7 +55,10 @@ ThemeData leanEatTheme() {
         foregroundColor: Colors.white,
         minimumSize: const Size.fromHeight(56),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        textStyle: const TextStyle(fontWeight: FontWeight.w800, letterSpacing: .3),
+        textStyle: const TextStyle(
+          fontWeight: FontWeight.w800,
+          letterSpacing: .3,
+        ),
       ),
     ),
     cardTheme: CardThemeData(
@@ -69,10 +72,20 @@ ThemeData leanEatTheme() {
   );
 }
 
+/// LeanIt's lightweight vector logo.
+///
+/// It is drawn at runtime instead of shipping a large raster image. The white
+/// L represents the user/base; the lime rising stroke represents measurable
+/// progress. It stays crisp as an app mark, toolbar mark or large welcome logo.
 class LeanEatLogo extends StatelessWidget {
   final double size;
   final bool showWordmark;
-  const LeanEatLogo({super.key, this.size = 72, this.showWordmark = true});
+
+  const LeanEatLogo({
+    super.key,
+    this.size = 72,
+    this.showWordmark = true,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -86,38 +99,91 @@ class LeanEatLogo extends StatelessWidget {
             gradient: const LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [LeanEatColors.forest, LeanEatColors.mint],
+              colors: [Color(0xFF0B553C), LeanEatColors.forest],
             ),
-            borderRadius: BorderRadius.circular(size * .28),
+            borderRadius: BorderRadius.circular(size * .27),
             boxShadow: const [
-              BoxShadow(color: Color(0x220F6B4B), blurRadius: 22, offset: Offset(0, 10)),
-            ],
-          ),
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              Icon(Icons.eco_rounded, color: LeanEatColors.lime, size: size * .55),
-              Positioned(
-                right: size * .14,
-                bottom: size * .12,
-                child: Icon(Icons.fitness_center_rounded, color: Colors.white, size: size * .28),
+              BoxShadow(
+                color: Color(0x220F6B4B),
+                blurRadius: 20,
+                offset: Offset(0, 9),
               ),
             ],
           ),
+          child: CustomPaint(painter: _LeanItMarkPainter()),
         ),
         if (showWordmark) ...[
           const SizedBox(width: 14),
-          const Text(
-            'LeanEat',
-            style: TextStyle(
-              fontSize: 30,
-              fontWeight: FontWeight.w900,
-              letterSpacing: -1.2,
-              color: LeanEatColors.ink,
+          RichText(
+            text: const TextSpan(
+              style: TextStyle(
+                fontFamily: 'Arial',
+                fontSize: 30,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -1.2,
+              ),
+              children: [
+                TextSpan(
+                  text: 'Lean',
+                  style: TextStyle(color: LeanEatColors.ink),
+                ),
+                TextSpan(
+                  text: 'It',
+                  style: TextStyle(color: LeanEatColors.forest),
+                ),
+              ],
             ),
           ),
         ],
       ],
     );
   }
+}
+
+class _LeanItMarkPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final white = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = size.width * .105
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    // Strong L-shaped base.
+    final base = Path()
+      ..moveTo(size.width * .30, size.height * .23)
+      ..lineTo(size.width * .30, size.height * .70)
+      ..quadraticBezierTo(
+        size.width * .30,
+        size.height * .76,
+        size.width * .37,
+        size.height * .76,
+      )
+      ..lineTo(size.width * .55, size.height * .76);
+    canvas.drawPath(base, white);
+
+    // Progress stroke rising out of the L.
+    final progress = Paint()
+      ..color = LeanEatColors.lime
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = size.width * .10
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    final rise = Path()
+      ..moveTo(size.width * .47, size.height * .65)
+      ..lineTo(size.width * .62, size.height * .49)
+      ..lineTo(size.width * .76, size.height * .31);
+    canvas.drawPath(rise, progress);
+
+    // Small arrow head keeps the mark readable at launcher-icon scale.
+    final arrow = Path()
+      ..moveTo(size.width * .64, size.height * .31)
+      ..lineTo(size.width * .76, size.height * .31)
+      ..lineTo(size.width * .76, size.height * .43);
+    canvas.drawPath(arrow, progress);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

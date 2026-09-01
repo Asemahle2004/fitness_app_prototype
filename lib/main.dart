@@ -41,7 +41,7 @@ class FitnessApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'LeanEat',
+      title: 'LeanIt',
       theme: leanEatTheme(),
       home: LeanEatAuthGate(
         onboardingHome: const WelcomeScreen(),
@@ -99,7 +99,7 @@ class WelcomeScreen extends StatelessWidget {
               const SizedBox(height: 8),
 
               const Text(
-                'LeanEat adapts with you.',
+                'LeanIt adapts with you.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 30,
@@ -3401,7 +3401,7 @@ class ProgrammeReadyScreen extends StatelessWidget {
                 children: [
                   LeanEatLogo(size: 30, showWordmark: false),
                   SizedBox(width: 10),
-                  Text('LeanEat'),
+                  Text('LeanIt'),
                 ],
               )
             : null,
@@ -3865,6 +3865,12 @@ class _WorkoutDetailScreenState extends State<WorkoutDetailScreen> {
       location: selectedLocation,
     );
     final workout = adaptation.workout;
+    final estimatedMinutes = (WorkoutEngine.estimateDurationSeconds(
+              workout,
+              sessionDuration: widget.session.duration,
+            ) /
+            60)
+        .round();
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7F9FC),
@@ -3913,7 +3919,7 @@ class _WorkoutDetailScreenState extends State<WorkoutDetailScreen> {
                     const SizedBox(height: 8),
 
                     Text(
-                      '${widget.session.duration} • '
+                      '≈$estimatedMinutes min including warm-up, sets, rest & cool-down • '
                       '${workout.exercises.length} exercises',
                       style: const TextStyle(
                         fontSize: 16,
