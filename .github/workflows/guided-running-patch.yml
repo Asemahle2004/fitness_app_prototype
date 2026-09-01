@@ -1,0 +1,31 @@
+name: Run guided running integration
+
+on:
+  push:
+    branches: [feature/guided-running-intervals]
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    if: ${{ !contains(github.event.head_commit.message, '[guided-running-patch]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/guided-running-intervals
+      - name: Apply guided running integration
+        run: python tools/patch_guided_running.py
+      - name: Commit integration
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add lib/live_run_screen.dart lib/run_tracking_screen.dart
+          if git diff --cached --quiet; then
+            echo "No integration changes required"
+          else
+            git commit -m "[guided-running-patch] Integrate guided running intervals"
+            git push origin feature/guided-running-intervals
+          fi
