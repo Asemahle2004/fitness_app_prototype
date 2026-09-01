@@ -6,6 +6,8 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'offline_programme_exercises.dart';
+
 class OnlineExercise {
   final String id;
   final String name;
@@ -433,11 +435,83 @@ class ExerciseRepository {
     for (final exercise in catalogue) {
       if (exercise.id == exerciseId) return exercise;
     }
+    for (final name in offlineProgrammeExerciseNames) {
+      final exercise = _offlineProgrammeExercise(name);
+      if (exercise.id == exerciseId) return exercise;
+    }
     return null;
+  }
+
+  OnlineExercise _offlineProgrammeExercise(String name) {
+    final lower = name.toLowerCase();
+    final equipment = lower.contains('dumbbell')
+        ? <String>['Dumbbell']
+        : lower.contains('barbell') || lower.contains('deadlift')
+            ? <String>['Barbell']
+            : lower.contains('cable') || lower.contains('pulldown')
+                ? <String>['Cable / machine']
+                : lower.contains('leg press') || lower.contains('machine')
+                    ? <String>['Machine']
+                    : lower.contains('band')
+                        ? <String>['Resistance Bands']
+                        : <String>['Bodyweight'];
+    final primary = lower.contains('squat') ||
+            lower.contains('lunge') ||
+            lower.contains('leg press')
+        ? <String>['Quads', 'Glutes']
+        : lower.contains('row') ||
+                lower.contains('pulldown') ||
+                lower.contains('pull-up')
+            ? <String>['Back', 'Biceps']
+            : lower.contains('press') || lower.contains('push-up')
+                ? <String>['Chest', 'Shoulders', 'Triceps']
+                : lower.contains('deadlift') ||
+                        lower.contains('bridge') ||
+                        lower.contains('hinge')
+                    ? <String>['Hamstrings', 'Glutes']
+                    : lower.contains('plank') ||
+                            lower.contains('bird dog') ||
+                            lower.contains('core')
+                        ? <String>['Core']
+                        : <String>['General fitness'];
+    return OnlineExercise(
+      id: idFromName(name),
+      name: name,
+      category: 'LeanIt programme',
+      primaryMuscles: primary,
+      secondaryMuscles: const <String>[],
+      equipment: equipment,
+      difficulty: null,
+      movementPattern: null,
+      locations: const <String>['Home', 'Gym', 'Outside'],
+      instructions: const <String>[
+        'Follow the set, rep and rest prescription shown in your LeanIt workout.',
+        'Use controlled technique and stop the movement if it causes new or increasing pain.',
+      ],
+      commonMistakes: const <String>[],
+      imagePath: null,
+      videoPath: null,
+      maleImagePath: null,
+      femaleImagePath: null,
+      maleVideoPath: null,
+      femaleVideoPath: null,
+      maleImageReviewed: false,
+      femaleImageReviewed: false,
+      mediaSource: 'LeanIt built-in offline catalogue',
+      mediaLicense: null,
+      mediaReviewNotes: '[offline-programme] Minimal offline metadata; richer catalogue data replaces this when available.',
+    );
   }
 
   Future<List<OnlineExercise>> fetchAll() async {
     final merged = <String, OnlineExercise>{};
+
+    // These tiny built-in records make every programme exercise available in
+    // the library even before the first catalogue download.
+    for (final name in offlineProgrammeExerciseNames) {
+      final exercise = _offlineProgrammeExercise(name);
+      merged[exercise.id] = exercise;
+    }
 
     final freeCatalogue = await _freeCatalogueSafely();
     for (final exercise in freeCatalogue.take(freeCatalogueLimit)) {

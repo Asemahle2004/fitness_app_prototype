@@ -235,7 +235,7 @@ replacement = r'''  static GeneratedWorkout _fitToDuration(
   }
 
   static const Set<String> _runningTitles'''
-new_text, count = pattern.subn(replacement, workout_text, count=1)
+new_text, count = pattern.subn(lambda _match: replacement, workout_text, count=1)
 if count != 1:
     raise RuntimeError('Could not replace WorkoutEngine duration fitter')
 workout_path.write_text(new_text, encoding='utf-8')

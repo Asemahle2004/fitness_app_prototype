@@ -3865,6 +3865,12 @@ class _WorkoutDetailScreenState extends State<WorkoutDetailScreen> {
       location: selectedLocation,
     );
     final workout = adaptation.workout;
+    final estimatedMinutes = (WorkoutEngine.estimateDurationSeconds(
+              workout,
+              sessionDuration: widget.session.duration,
+            ) /
+            60)
+        .round();
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7F9FC),
@@ -3913,7 +3919,7 @@ class _WorkoutDetailScreenState extends State<WorkoutDetailScreen> {
                     const SizedBox(height: 8),
 
                     Text(
-                      '${widget.session.duration} • '
+                      '≈$estimatedMinutes min including warm-up, sets, rest & cool-down • '
                       '${workout.exercises.length} exercises',
                       style: const TextStyle(
                         fontSize: 16,

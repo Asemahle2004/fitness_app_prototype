@@ -29,11 +29,10 @@ class _LeanEatAccountScreenState extends State<LeanEatAccountScreen> {
   }
 
   Future<Map<String, dynamic>?> _loadProfile() async {
-    final user = _client.auth.currentUser;
-    if (user == null) return null;
-    final row = await _client.from('profiles').select().eq('id', user.id).maybeSingle();
+    final row = await _profiles.currentProfileMap();
     if (row != null) {
-      _nameController.text = (row['display_name'] ?? row['full_name'] ?? '') as String;
+      _nameController.text =
+          (row['display_name'] ?? row['full_name'] ?? '').toString();
       final pref = row['visual_preference'] as String?;
       _visualPreference = switch (pref) {
         'Female' => 'Female',
