@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'exercise_media.dart';
 import 'session_preparation_engine.dart';
+import 'session_step_visuals.dart';
 
 class SessionPhaseFlowScreen extends StatefulWidget {
   final String title;
@@ -116,6 +118,157 @@ class _SessionPhaseFlowScreenState extends State<SessionPhaseFlowScreen> {
     return '${minutes.toString().padLeft(2, '0')}:${remainder.toString().padLeft(2, '0')}';
   }
 
+  Widget _stepVisual() {
+    final demonstration = SessionStepVisuals.forStep(_current);
+    if (demonstration == null) {
+      return Container(
+        width: double.infinity,
+        height: 178,
+        decoration: BoxDecoration(
+          color: const Color(0xFFF0F7F9),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFFD9E2EC)),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircleAvatar(
+              radius: 34,
+              backgroundColor: const Color(0xFFE5F4F8),
+              child: Icon(
+                _icon(_current.type),
+                size: 36,
+                color: const Color(0xFF176B87),
+              ),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'COACHED MOVEMENT',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 0.8,
+                color: Color(0xFF176B87),
+              ),
+            ),
+            const SizedBox(height: 4),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 18),
+              child: Text(
+                'Follow the technique cue below. LeanIt will only show an exercise photo when the movement has a reviewed or approved reference.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 11,
+                  height: 1.35,
+                  color: Color(0xFF627D98),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      children: [
+        SizedBox(
+          width: double.infinity,
+          height: 225,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: ExerciseMedia(
+              exerciseName: demonstration.exerciseName,
+              fit: BoxFit.contain,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(
+              Icons.ondemand_video_outlined,
+              size: 16,
+              color: Color(0xFF176B87),
+            ),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                '${demonstration.label.toUpperCase()} • ${demonstration.exerciseName}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.4,
+                  color: Color(0xFF176B87),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _nextStepPreview() {
+    if (_index >= widget.steps.length - 1) return const SizedBox.shrink();
+    final next = widget.steps[_index + 1];
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFD9E2EC)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF0F7F9),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(_icon(next.type), color: const Color(0xFF176B87)),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'UP NEXT',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.8,
+                    color: Color(0xFF829AB1),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  next.name,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF102A43),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Text(
+            _clock(next.durationSeconds),
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF486581),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (widget.steps.isEmpty) {
@@ -175,7 +328,7 @@ class _SessionPhaseFlowScreenState extends State<SessionPhaseFlowScreen> {
             ),
             const SizedBox(height: 18),
             Container(
-              padding: const EdgeInsets.all(22),
+              padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(24),
@@ -183,16 +336,8 @@ class _SessionPhaseFlowScreenState extends State<SessionPhaseFlowScreen> {
               ),
               child: Column(
                 children: [
-                  CircleAvatar(
-                    radius: 34,
-                    backgroundColor: const Color(0xFFE5F4F8),
-                    child: Icon(
-                      _icon(_current.type),
-                      size: 36,
-                      color: const Color(0xFF176B87),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
+                  _stepVisual(),
+                  const SizedBox(height: 16),
                   Text(
                     _current.type.label.toUpperCase(),
                     style: const TextStyle(
@@ -220,7 +365,7 @@ class _SessionPhaseFlowScreenState extends State<SessionPhaseFlowScreen> {
                       color: Color(0xFF486581),
                     ),
                   ),
-                  const SizedBox(height: 22),
+                  const SizedBox(height: 20),
                   Text(
                     _clock(_remaining),
                     style: const TextStyle(
@@ -270,7 +415,9 @@ class _SessionPhaseFlowScreenState extends State<SessionPhaseFlowScreen> {
                 ],
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
+            _nextStepPreview(),
+            if (!isLast) const SizedBox(height: 14),
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
