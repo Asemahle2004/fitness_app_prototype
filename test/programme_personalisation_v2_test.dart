@@ -1,5 +1,6 @@
 import 'package:fitness_app_prototype/programme_engine.dart';
 import 'package:fitness_app_prototype/programme_store.dart';
+import 'package:fitness_app_prototype/workout_engine.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -29,14 +30,8 @@ void main() {
       programme.sessions.any((session) => session.title == 'Cardio Intervals'),
       isFalse,
     );
-    expect(
-      programme.sessions.every((session) => session.focus.isNotEmpty),
-      isTrue,
-    );
-    expect(
-      programme.sessions.every((session) => session.intensity.isNotEmpty),
-      isTrue,
-    );
+    expect(programme.sessions.every((session) => session.focus.isNotEmpty), isTrue);
+    expect(programme.sessions.every((session) => session.intensity.isNotEmpty), isTrue);
     expect(
       programme.sessions.every((session) => session.personalisationNote.isNotEmpty),
       isTrue,
@@ -122,7 +117,7 @@ void main() {
     expect(programme.explanation, contains('Outside or Gym'));
   });
 
-  test('limitations add safety context without diagnosing the user', () {
+  test('limitations add safety context without pretending to prescribe rehab', () {
     final programme = ProgrammeEngine.generate(
       goal: 'Improve General Fitness',
       experience: 'Beginner',
@@ -136,8 +131,8 @@ void main() {
       affectedAreas: const {'Knee'},
     );
 
+    expect(programme.explanation, contains('do not diagnose'));
     expect(programme.explanation, contains('safety engine'));
-    expect(programme.explanation.toLowerCase(), isNot(contains('diagnos')));
     expect(
       programme.sessions.every(
         (session) => session.personalisationNote.contains('safety substitutions'),
@@ -169,5 +164,16 @@ void main() {
       ProgrammeStore.signatureForProfile(active),
       isNot(ProgrammeStore.signatureForProfile(sedentary)),
     );
+  });
+
+  test('20 minute profile produces a compact workout', () {
+    final workout = WorkoutEngine.generate(
+      sessionTitle: 'Full Body Strength',
+      location: 'Gym',
+      gymAccess: 'Standard gym',
+      sessionDuration: '20 min',
+    );
+
+    expect(workout.exercises.length, lessThanOrEqualTo(3));
   });
 }
