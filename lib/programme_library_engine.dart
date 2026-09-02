@@ -21,7 +21,7 @@ class ProgrammeTemplate {
   final Set<String> equipment;
   final int weeks;
   final int daysPerWeek;
-  final List<String> evidenceRuleIds;
+  final Set<String> evidenceRuleIds;
   final EvidenceReviewStatus reviewStatus;
   final List<PlannedSession> sessions;
 
