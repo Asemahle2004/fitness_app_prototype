@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'run_tracking_engine.dart';
 import 'run_tracking_screen.dart';
 import 'run_tracking_store.dart';
+import 'unit_display.dart';
 
 class RunTrackingEntrySection extends StatelessWidget {
   const RunTrackingEntrySection({super.key});
@@ -66,7 +67,7 @@ class RunTrackingEntrySection extends StatelessWidget {
                           Text(
                             runs.isEmpty
                                 ? 'Start your running history'
-                                : '${total.runs} runs • ${total.distanceKm.toStringAsFixed(1)} km total',
+                                : '${total.runs} runs • ${UnitDisplay.formatDistanceKm(total.distanceKm, decimals: 1)} total',
                             style: const TextStyle(
                               fontWeight: FontWeight.bold,
                               color: Color(0xFF102A43),
@@ -76,7 +77,7 @@ class RunTrackingEntrySection extends StatelessWidget {
                           Text(
                             latest == null
                                 ? 'GPS tracking, manual run logging and pace progress'
-                                : 'Latest: ${latest.distanceKm.toStringAsFixed(2)} km • ${RunTrackingEngine.formatPace(latest.averagePaceSecondsPerKm)}',
+                                : 'Latest: ${UnitDisplay.formatDistanceKm(latest.distanceKm)} • ${UnitDisplay.formatPace(latest.averagePaceSecondsPerKm)}',
                             style: const TextStyle(
                               color: Color(0xFF627D98),
                               fontSize: 13,
