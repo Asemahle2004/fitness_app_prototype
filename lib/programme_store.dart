@@ -65,6 +65,15 @@ class ProgrammeStore {
     return value.whereType<String>().toSet();
   }
 
+  static List<String> _stringList(dynamic value) {
+    if (value is! List) return const <String>[];
+    return value
+        .whereType<String>()
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .toList(growable: false);
+  }
+
   static List<String> _sortedStrings(dynamic value) {
     final items = _stringSet(value).toList()..sort();
     return items;
@@ -79,9 +88,24 @@ class ProgrammeStore {
     return value == null || value.isEmpty ? fallback : value;
   }
 
+  static List<String> _goalsForProfile(Map<String, dynamic> profile) {
+    final main = _string(profile, 'main_goal', 'Improve General Fitness');
+    final stored = _stringList(profile['goals']);
+    final result = <String>[];
+    for (final goal in <String>[main, ...stored]) {
+      if (ProgrammeEngine.supportedGoals.contains(goal) && !result.contains(goal)) {
+        result.add(goal);
+      }
+    }
+    if (result.isEmpty) result.add('Improve General Fitness');
+    return result;
+  }
+
   static GeneratedProgramme programmeFromProfile(Map<String, dynamic> profile) {
-    return ProgrammeEngine.generate(
-      goal: _string(profile, 'main_goal', 'Improve General Fitness'),
+    final mainGoal = _string(profile, 'main_goal', 'Improve General Fitness');
+    return ProgrammeEngine.generateForGoals(
+      goals: _goalsForProfile(profile),
+      mainGoal: mainGoal,
       experience: _string(profile, 'experience', 'Beginner'),
       fitnessLevel: _string(profile, 'fitness_level', 'Low'),
       activityLevel: _string(profile, 'activity_level', 'Moderately active'),
@@ -96,9 +120,14 @@ class ProgrammeStore {
     );
   }
 
+  /// Any programme-relevant profile change must invalidate the stored plan.
+  /// In particular, `goals` is included separately from `main_goal`, so adding
+  /// or removing a secondary goal regenerates the concurrent programme even if
+  /// the member keeps the same primary goal.
   static String signatureForProfile(Map<String, dynamic> profile) {
     final snapshot = <String, dynamic>{
       'goal': _string(profile, 'main_goal', 'Improve General Fitness'),
+      'goals': (_goalsForProfile(profile).toList()..sort()),
       'experience': _string(profile, 'experience', 'Beginner'),
       'fitnessLevel': _string(profile, 'fitness_level', 'Low'),
       'activityLevel': _string(profile, 'activity_level', 'Moderately active'),
@@ -117,21 +146,20 @@ class ProgrammeStore {
 
   static List<Map<String, dynamic>> _sessionsToJson(
     List<PlannedSession> sessions,
-  ) {
-    return sessions
-        .map(
-          (session) => <String, dynamic>{
-            'day': session.day,
-            'title': session.title,
-            'location': session.location,
-            'duration': session.duration,
-            'focus': session.focus,
-            'intensity': session.intensity,
-            'personalisation_note': session.personalisationNote,
-          },
-        )
-        .toList(growable: false);
-  }
+  ) =>
+      sessions
+          .map(
+            (session) => <String, dynamic>{
+              'day': session.day,
+              'title': session.title,
+              'location': session.location,
+              'duration': session.duration,
+              'focus': session.focus,
+              'intensity': session.intensity,
+              'personalisation_note': session.personalisationNote,
+            },
+          )
+          .toList(growable: false);
 
   static List<PlannedSession> _sessionsFromJson(dynamic value) {
     if (value is! List) return const <PlannedSession>[];
@@ -175,7 +203,8 @@ class ProgrammeStore {
   static Map<String, dynamic> _rowForStored(
     StoredProgramme value, {
     String? userId,
-  }) => <String, dynamic>{
+  }) =>
+      <String, dynamic>{
         if (userId != null) 'user_id': userId,
         'profile_signature': value.profileSignature,
         'goal': value.programme.goal,
@@ -364,8 +393,7 @@ class ProgrammeStore {
   }) async {
     final current = await loadCurrent();
     if (current == null || current.programme.sessions.isEmpty) return;
-    if (completedIndex < 0 ||
-        completedIndex >= current.programme.sessions.length) {
+    if (completedIndex < 0 || completedIndex >= current.programme.sessions.length) {
       return;
     }
 
@@ -467,15 +495,16 @@ class ProgrammeStore {
           strength?.action == StrengthAdaptationAction.reduce ||
           strength?.action == StrengthAdaptationAction.maintain,
       progressionSupported: decisionMode == AdaptiveWeekMode.progress &&
-          (strength == null ||
-              strength.action == StrengthAdaptationAction.progress),
+          (strength == null || strength.action == StrengthAdaptationAction.progress),
+      goals: profile == null ? null : _goalsForProfile(profile),
     );
     PeriodizationEngine.setCurrent(plan);
     final periodizedSessions =
         PeriodizationEngine.adaptSessions(nextProgramme.sessions, plan);
     nextProgramme = GeneratedProgramme(
       goal: nextProgramme.goal,
-      structure: '${nextProgramme.structure} • ${plan.phase.label} block',
+      structure:
+          '${nextProgramme.structure} • ${plan.blockLabel} • ${plan.phase.label}',
       explanation:
           '${plan.headline}. ${plan.reasons.join(' ')}\n\n${nextProgramme.explanation}',
       sessions: periodizedSessions,
@@ -483,7 +512,8 @@ class ProgrammeStore {
 
     final updated = StoredProgramme(
       programme: nextProgramme,
-      profileSignature: current.profileSignature,
+      profileSignature:
+          profile == null ? current.profileSignature : signatureForProfile(profile),
       currentWeek: nextWeek,
       currentSessionIndex: nextIndex,
       activeSessionIndex: null,

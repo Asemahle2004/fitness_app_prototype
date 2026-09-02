@@ -7,6 +7,8 @@ import 'live_run_screen.dart';
 import 'run_log_form_screen.dart';
 import 'run_tracking_engine.dart';
 import 'run_tracking_store.dart';
+import 'training_tools_engine.dart';
+import 'unit_display.dart';
 
 class RunTrackingScreen extends StatefulWidget {
   const RunTrackingScreen({super.key});
@@ -60,7 +62,7 @@ class _RunTrackingScreenState extends State<RunTrackingScreen> {
           builder: (context) => AlertDialog(
             title: const Text('Delete run?'),
             content: Text(
-              '${run.distanceKm.toStringAsFixed(2)} km on ${_date(run.startedAt)} will be removed from LeanIt history.',
+              '${UnitDisplay.formatDistanceKm(run.distanceKm)} on ${_date(run.startedAt)} will be removed from LeanIt history.',
             ),
             actions: [
               TextButton(
@@ -78,6 +80,20 @@ class _RunTrackingScreenState extends State<RunTrackingScreen> {
     if (!confirmed) return;
     await RunTrackingStore.delete(run.id);
     await _refresh();
+  }
+
+  List<RunProgressPoint> _displayPoints(List<RunProgressPoint> canonical) {
+    if (UnitDisplay.isMetric) return canonical;
+    return canonical
+        .map(
+          (point) => RunProgressPoint(
+            date: point.date,
+            value: _metric == RunProgressMetric.distance
+                ? TrainingToolsEngine.kmToMiles(point.value)
+                : point.value * TrainingToolsEngine.kmPerMile,
+          ),
+        )
+        .toList(growable: false);
   }
 
   @override
@@ -104,7 +120,9 @@ class _RunTrackingScreenState extends State<RunTrackingScreen> {
           );
           final best = RunTrackingEngine.bestPace(runs);
           final longest = RunTrackingEngine.longestRun(runs);
-          final points = RunTrackingEngine.seriesFor(runs, _metric);
+          final points = _displayPoints(
+            RunTrackingEngine.seriesFor(runs, _metric),
+          );
 
           return RefreshIndicator(
             onRefresh: _refresh,
@@ -120,9 +138,9 @@ class _RunTrackingScreenState extends State<RunTrackingScreen> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                const Text(
-                  'Choose a guided interval session, track a free outdoor run with foreground GPS, or log treadmill/watch runs manually. LeanIt keeps distance, time and pace history together.',
-                  style: TextStyle(color: Color(0xFF627D98), height: 1.4),
+                Text(
+                  'Guided runs, GPS runs and manual treadmill/watch runs all use ${UnitDisplay.distanceUnit} and ${UnitDisplay.paceUnit} on screen while LeanIt keeps one canonical history.',
+                  style: const TextStyle(color: Color(0xFF627D98), height: 1.4),
                 ),
                 const SizedBox(height: 18),
                 Row(
@@ -160,7 +178,7 @@ class _RunTrackingScreenState extends State<RunTrackingScreen> {
                   children: [
                     _Stat(
                       label: 'This week',
-                      value: '${week.distanceKm.toStringAsFixed(1)} km',
+                      value: UnitDisplay.formatDistanceKm(week.distanceKm, decimals: 1),
                       icon: Icons.calendar_view_week_outlined,
                     ),
                     _Stat(
@@ -170,28 +188,24 @@ class _RunTrackingScreenState extends State<RunTrackingScreen> {
                     ),
                     _Stat(
                       label: 'Total distance',
-                      value: '${all.distanceKm.toStringAsFixed(1)} km',
+                      value: UnitDisplay.formatDistanceKm(all.distanceKm, decimals: 1),
                       icon: Icons.route_outlined,
                     ),
                     _Stat(
                       label: 'Best pace',
-                      value: RunTrackingEngine.formatPace(
-                        best?.averagePaceSecondsPerKm,
-                      ),
+                      value: UnitDisplay.formatPace(best?.averagePaceSecondsPerKm),
                       icon: Icons.speed_rounded,
                     ),
                     _Stat(
                       label: 'Longest run',
                       value: longest == null
                           ? '--'
-                          : '${longest.distanceKm.toStringAsFixed(2)} km',
+                          : UnitDisplay.formatDistanceKm(longest.distanceKm),
                       icon: Icons.straighten_rounded,
                     ),
                     _Stat(
                       label: 'Total time',
-                      value: RunTrackingEngine.formatDuration(
-                        all.durationSeconds,
-                      ),
+                      value: RunTrackingEngine.formatDuration(all.durationSeconds),
                       icon: Icons.timer_outlined,
                     ),
                   ],
@@ -253,9 +267,9 @@ class _RunTrackingScreenState extends State<RunTrackingScreen> {
                 ),
                 if (_metric == RunProgressMetric.pace) ...[
                   const SizedBox(height: 8),
-                  const Text(
-                    'For pace, a lower min/km value means faster running. Runs under 500 m are excluded from the pace trend.',
-                    style: TextStyle(color: Color(0xFF829AB1), fontSize: 12),
+                  Text(
+                    'For pace, a lower min${UnitDisplay.paceUnit} value means faster running. Runs under 500 m are excluded from the pace trend.',
+                    style: const TextStyle(color: Color(0xFF829AB1), fontSize: 12),
                   ),
                 ],
                 const SizedBox(height: 28),
@@ -282,10 +296,12 @@ class _RunTrackingScreenState extends State<RunTrackingScreen> {
                     ),
                   )
                 else
-                  ...runs.map((run) => _RunTile(
-                        run: run,
-                        onDelete: () => _delete(run),
-                      )),
+                  ...runs.map(
+                    (run) => _RunTile(
+                      run: run,
+                      onDelete: () => _delete(run),
+                    ),
+                  ),
               ],
             ),
           );
@@ -294,8 +310,7 @@ class _RunTrackingScreenState extends State<RunTrackingScreen> {
     );
   }
 
-  static String _date(DateTime value) =>
-      '${value.day}/${value.month}/${value.year}';
+  static String _date(DateTime value) => '${value.day}/${value.month}/${value.year}';
 }
 
 class _Stat extends StatelessWidget {
@@ -367,7 +382,7 @@ class _RunTile extends StatelessWidget {
           ),
         ),
         title: Text(
-          '${run.distanceKm.toStringAsFixed(2)} km',
+          UnitDisplay.formatDistanceKm(run.distanceKm),
           style: const TextStyle(
             fontWeight: FontWeight.bold,
             color: Color(0xFF102A43),
@@ -376,7 +391,7 @@ class _RunTile extends StatelessWidget {
         subtitle: Text(
           '${d.day}/${d.month}/${d.year} • '
           '${RunTrackingEngine.formatDuration(run.durationSeconds)} • '
-          '${RunTrackingEngine.formatPace(run.averagePaceSecondsPerKm)}'
+          '${UnitDisplay.formatPace(run.averagePaceSecondsPerKm)}'
           '${run.notes == null ? '' : '\n${run.notes}'}',
           maxLines: run.notes == null ? 2 : 3,
           overflow: TextOverflow.ellipsis,
@@ -437,14 +452,7 @@ class _RunChartPainter extends CustomPainter {
       final y = top + height * i / 4;
       canvas.drawLine(Offset(left, y), Offset(left + width, y), grid);
       final value = maxValue - (maxValue - minValue) * i / 4;
-      _text(
-        canvas,
-        metric == RunProgressMetric.distance
-            ? value.toStringAsFixed(1)
-            : value.toStringAsFixed(1),
-        Offset(0, y - 7),
-        left - 5,
-      );
+      _text(canvas, value.toStringAsFixed(1), Offset(0, y - 7), left - 5);
     }
 
     final path = Path();
@@ -477,10 +485,7 @@ class _RunChartPainter extends CustomPainter {
       ),
       textDirection: TextDirection.ltr,
     )..layout();
-    painter.paint(
-      canvas,
-      Offset(left + width - painter.width, size.height - 18),
-    );
+    painter.paint(canvas, Offset(left + width - painter.width, size.height - 18));
   }
 
   void _text(Canvas canvas, String text, Offset offset, double maxWidth) {

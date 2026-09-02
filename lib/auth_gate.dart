@@ -27,9 +27,17 @@ class _LeanEatAuthGateState extends State<LeanEatAuthGate> {
   @override
   void initState() {
     super.initState();
-    _subscription = Supabase.instance.client.auth.onAuthStateChange.listen((_) {
-      if (mounted) setState(() {});
-    });
+    _subscription = Supabase.instance.client.auth.onAuthStateChange.listen(
+      (_) {
+        if (mounted) setState(() {});
+      },
+      onError: (_, __) {
+        // Supabase can emit network errors while attempting an auth refresh.
+        // Keep the locally restored session/profile usable offline instead of
+        // allowing an unhandled stream error to terminate the app shell.
+        if (mounted) setState(() {});
+      },
+    );
   }
 
   @override
@@ -70,7 +78,7 @@ class _LeanEatAuthGateState extends State<LeanEatAuthGate> {
                         const Icon(Icons.cloud_off_outlined, size: 42),
                         const SizedBox(height: 12),
                         const Text(
-                          'LeanIt could not load your saved profile.',
+                          'LeanIt could not load your saved profile. Connect once to cache your profile for offline training.',
                           textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 14),

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'body_progress_engine.dart';
 import 'body_progress_screen.dart';
 import 'body_progress_store.dart';
+import 'unit_display.dart';
 
 class BodyProgressEntrySection extends StatefulWidget {
   const BodyProgressEntrySection({super.key});
@@ -30,9 +31,13 @@ class _BodyProgressEntrySectionState extends State<BodyProgressEntrySection> {
     }
   }
 
-  String _number(double value) {
-    if (value % 1 == 0) return value.toStringAsFixed(0);
-    return value.toStringAsFixed(1);
+  String _signedWeightChange(double kg) {
+    final display = UnitDisplay.displayWeightValue(kg);
+    final sign = display >= 0 ? '+' : '';
+    final value = display.abs() % 1 == 0
+        ? display.toStringAsFixed(0)
+        : display.toStringAsFixed(1);
+    return '$sign$value ${UnitDisplay.weightUnit}';
   }
 
   @override
@@ -108,7 +113,7 @@ class _BodyProgressEntrySectionState extends State<BodyProgressEntrySection> {
                     Text(
                       latestWeight?.weightKg == null
                           ? '${entries.length} measurement entries'
-                          : 'Latest ${_number(latestWeight!.weightKg!)} kg',
+                          : 'Latest ${UnitDisplay.formatWeight(latestWeight!.weightKg!)}',
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         color: Color(0xFF102A43),
@@ -116,7 +121,7 @@ class _BodyProgressEntrySectionState extends State<BodyProgressEntrySection> {
                     ),
                     if (weightChange != null)
                       Text(
-                        'Change ${weightChange >= 0 ? '+' : ''}${_number(weightChange)} kg',
+                        'Change ${_signedWeightChange(weightChange)}',
                         style: const TextStyle(
                           fontWeight: FontWeight.bold,
                           color: Color(0xFF176B87),

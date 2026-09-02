@@ -1,5 +1,6 @@
 import 'exercise_performance_store.dart';
 import 'run_tracking_store.dart';
+import 'unit_display.dart';
 
 enum PersonalRecordMetric {
   heaviestLoad,
@@ -98,56 +99,49 @@ class PersonalRecordEngine {
       final sourceId = _setSourceId(set);
       final detail = '${set.workoutTitle} • ${set.summary}';
 
-      final weight = set.weightKg;
-      if (weight != null && weight > 0) {
+      if (set.weightKg != null && set.weightKg! > 0) {
         _recordHigher(
           events: events,
           best: best,
           metric: PersonalRecordMetric.heaviestLoad,
           subject: subject,
-          value: weight,
+          value: set.weightKg!,
           achievedAt: set.performedAt,
           detail: detail,
           sourceId: sourceId,
         );
       }
-
-      final reps = set.reps;
-      if (reps != null && reps > 0) {
+      if (set.reps != null && set.reps! > 0) {
         _recordHigher(
           events: events,
           best: best,
           metric: PersonalRecordMetric.mostReps,
           subject: subject,
-          value: reps.toDouble(),
+          value: set.reps!.toDouble(),
           achievedAt: set.performedAt,
           detail: detail,
           sourceId: sourceId,
         );
       }
-
-      final volume = set.volumeKg;
-      if (volume > 0) {
+      if (set.volumeKg > 0) {
         _recordHigher(
           events: events,
           best: best,
           metric: PersonalRecordMetric.setVolume,
           subject: subject,
-          value: volume,
+          value: set.volumeKg,
           achievedAt: set.performedAt,
           detail: detail,
           sourceId: sourceId,
         );
       }
-
-      final duration = set.durationSeconds;
-      if (duration != null && duration > 0) {
+      if (set.durationSeconds != null && set.durationSeconds! > 0) {
         _recordHigher(
           events: events,
           best: best,
           metric: PersonalRecordMetric.timedDuration,
           subject: subject,
-          value: duration.toDouble(),
+          value: set.durationSeconds!.toDouble(),
           achievedAt: set.performedAt,
           detail: detail,
           sourceId: sourceId,
@@ -157,12 +151,10 @@ class PersonalRecordEngine {
 
     final sortedRuns = runs.toList(growable: false)
       ..sort((a, b) => a.startedAt.compareTo(b.startedAt));
-
     for (final run in sortedRuns) {
       final sourceId = 'run|${run.id}';
       final detail =
           '${run.source == 'gps' ? 'GPS run' : 'Logged run'} • ${_formatDuration(run.durationSeconds)}';
-
       if (run.distanceMeters > 0) {
         _recordHigher(
           events: events,
@@ -175,7 +167,6 @@ class PersonalRecordEngine {
           sourceId: sourceId,
         );
       }
-
       final pace = run.averagePaceSecondsPerKm;
       if (pace != null && pace > 0 && run.distanceMeters >= 500) {
         _recordLower(
@@ -200,7 +191,6 @@ class PersonalRecordEngine {
     required Iterable<ExerciseSetPerformance> previous,
   }) {
     if (current.isDropSet) return const <PersonalRecordAchievement>[];
-
     final subject = current.exerciseName.trim().isEmpty
         ? 'Exercise'
         : current.exerciseName.trim();
@@ -214,24 +204,22 @@ class PersonalRecordEngine {
     double? bestVolume;
     double? bestDuration;
     for (final set in comparable) {
-      final weight = set.weightKg;
-      if (weight != null && weight > 0) {
-        bestLoad = bestLoad == null || weight > bestLoad ? weight : bestLoad;
+      if (set.weightKg != null && set.weightKg! > 0) {
+        bestLoad = bestLoad == null || set.weightKg! > bestLoad
+            ? set.weightKg
+            : bestLoad;
       }
-      final reps = set.reps;
-      if (reps != null && reps > 0) {
-        final value = reps.toDouble();
+      if (set.reps != null && set.reps! > 0) {
+        final value = set.reps!.toDouble();
         bestReps = bestReps == null || value > bestReps ? value : bestReps;
       }
-      final volume = set.volumeKg;
-      if (volume > 0) {
-        bestVolume = bestVolume == null || volume > bestVolume
-            ? volume
+      if (set.volumeKg > 0) {
+        bestVolume = bestVolume == null || set.volumeKg > bestVolume
+            ? set.volumeKg
             : bestVolume;
       }
-      final duration = set.durationSeconds;
-      if (duration != null && duration > 0) {
-        final value = duration.toDouble();
+      if (set.durationSeconds != null && set.durationSeconds! > 0) {
+        final value = set.durationSeconds!.toDouble();
         bestDuration = bestDuration == null || value > bestDuration
             ? value
             : bestDuration;
@@ -242,24 +230,21 @@ class PersonalRecordEngine {
     final detail = '${current.workoutTitle} • ${current.summary}';
     final achievements = <PersonalRecordAchievement>[];
 
-    final weight = current.weightKg;
-    if (weight != null &&
-        weight > 0 &&
-        (bestLoad == null || weight > bestLoad + _epsilon)) {
+    if (current.weightKg != null &&
+        current.weightKg! > 0 &&
+        (bestLoad == null || current.weightKg! > bestLoad + _epsilon)) {
       achievements.add(PersonalRecordAchievement(
         metric: PersonalRecordMetric.heaviestLoad,
         subject: subject,
-        value: weight,
+        value: current.weightKg!,
         previousValue: bestLoad,
         achievedAt: current.performedAt,
         detail: detail,
         sourceId: sourceId,
       ));
     }
-
-    final reps = current.reps;
-    if (reps != null && reps > 0) {
-      final value = reps.toDouble();
+    if (current.reps != null && current.reps! > 0) {
+      final value = current.reps!.toDouble();
       if (bestReps == null || value > bestReps + _epsilon) {
         achievements.add(PersonalRecordAchievement(
           metric: PersonalRecordMetric.mostReps,
@@ -272,24 +257,20 @@ class PersonalRecordEngine {
         ));
       }
     }
-
-    final volume = current.volumeKg;
-    if (volume > 0 &&
-        (bestVolume == null || volume > bestVolume + _epsilon)) {
+    if (current.volumeKg > 0 &&
+        (bestVolume == null || current.volumeKg > bestVolume + _epsilon)) {
       achievements.add(PersonalRecordAchievement(
         metric: PersonalRecordMetric.setVolume,
         subject: subject,
-        value: volume,
+        value: current.volumeKg,
         previousValue: bestVolume,
         achievedAt: current.performedAt,
         detail: detail,
         sourceId: sourceId,
       ));
     }
-
-    final duration = current.durationSeconds;
-    if (duration != null && duration > 0) {
-      final value = duration.toDouble();
+    if (current.durationSeconds != null && current.durationSeconds! > 0) {
+      final value = current.durationSeconds!.toDouble();
       if (bestDuration == null || value > bestDuration + _epsilon) {
         achievements.add(PersonalRecordAchievement(
           metric: PersonalRecordMetric.timedDuration,
@@ -302,7 +283,6 @@ class PersonalRecordEngine {
         ));
       }
     }
-
     return achievements;
   }
 
@@ -314,8 +294,7 @@ class PersonalRecordEngine {
     double? fastestPace;
     for (final run in previous) {
       if (run.distanceMeters > 0) {
-        longestDistance = longestDistance == null ||
-                run.distanceMeters > longestDistance
+        longestDistance = longestDistance == null || run.distanceMeters > longestDistance
             ? run.distanceMeters
             : longestDistance;
       }
@@ -333,8 +312,7 @@ class PersonalRecordEngine {
     final achievements = <PersonalRecordAchievement>[];
 
     if (current.distanceMeters > 0 &&
-        (longestDistance == null ||
-            current.distanceMeters > longestDistance + _epsilon)) {
+        (longestDistance == null || current.distanceMeters > longestDistance + _epsilon)) {
       achievements.add(PersonalRecordAchievement(
         metric: PersonalRecordMetric.longestRun,
         subject: 'Running',
@@ -345,7 +323,6 @@ class PersonalRecordEngine {
         sourceId: sourceId,
       ));
     }
-
     final pace = current.averagePaceSecondsPerKm;
     if (pace != null && pace > 0 && current.distanceMeters >= 500) {
       if (fastestPace == null || pace < fastestPace - _epsilon) {
@@ -360,24 +337,24 @@ class PersonalRecordEngine {
         ));
       }
     }
-
     return achievements;
   }
 
   static String formatValue(PersonalRecordMetric metric, double value) {
     switch (metric) {
       case PersonalRecordMetric.heaviestLoad:
-        return '${_formatNumber(value)} kg';
+        return UnitDisplay.formatWeight(value);
       case PersonalRecordMetric.mostReps:
         return '${value.round()} reps';
       case PersonalRecordMetric.setVolume:
-        return '${_formatNumber(value)} kg·reps';
+        final display = UnitDisplay.displayWeightValue(value);
+        return '${_formatNumber(display)} ${UnitDisplay.weightUnit}·reps';
       case PersonalRecordMetric.timedDuration:
         return _formatDuration(value.round());
       case PersonalRecordMetric.longestRun:
-        return '${(value / 1000).toStringAsFixed(2)} km';
+        return UnitDisplay.formatDistanceMeters(value);
       case PersonalRecordMetric.fastestPace:
-        return _formatPace(value);
+        return UnitDisplay.formatPace(value);
     }
   }
 
@@ -441,22 +418,18 @@ class PersonalRecordEngine {
     return a.metric.index.compareTo(b.metric.index);
   }
 
-  static String _setSourceId(ExerciseSetPerformance set) {
-    return [
-      'set',
-      set.exerciseName.trim().toLowerCase(),
-      set.setNumber,
-      set.reps,
-      set.weightKg,
-      set.durationSeconds,
-      set.performedAt.toUtc().toIso8601String(),
-    ].join('|');
-  }
+  static String _setSourceId(ExerciseSetPerformance set) => [
+        'set',
+        set.exerciseName.trim().toLowerCase(),
+        set.setNumber,
+        set.reps,
+        set.weightKg,
+        set.durationSeconds,
+        set.performedAt.toUtc().toIso8601String(),
+      ].join('|');
 
   static String _formatNumber(double value) {
-    if ((value - value.round()).abs() < _epsilon) {
-      return value.toStringAsFixed(0);
-    }
+    if ((value - value.round()).abs() < _epsilon) return value.toStringAsFixed(0);
     return value.toStringAsFixed(1);
   }
 
@@ -469,13 +442,5 @@ class PersonalRecordEngine {
       return '${hours}h ${minutes.toString().padLeft(2, '0')}m ${seconds.toString().padLeft(2, '0')}s';
     }
     return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
-  }
-
-  static String _formatPace(double secondsPerKm) {
-    if (!secondsPerKm.isFinite || secondsPerKm <= 0) return '--:-- /km';
-    final total = secondsPerKm.round();
-    final minutes = total ~/ 60;
-    final seconds = total % 60;
-    return '$minutes:${seconds.toString().padLeft(2, '0')} /km';
   }
 }

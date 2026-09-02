@@ -61,13 +61,15 @@ class MuscleWikiMediaService {
     }
 
     try {
-      final response = await client.functions.invoke(
-        'musclewiki-media',
-        body: <String, dynamic>{
-          'exerciseName': exerciseName,
-          'sex': resolvedSex,
-        },
-      );
+      final response = await client.functions
+          .invoke(
+            'musclewiki-media',
+            body: <String, dynamic>{
+              'exerciseName': exerciseName,
+              'sex': resolvedSex,
+            },
+          )
+          .timeout(const Duration(seconds: 4));
       final result = MuscleWikiMediaResult.fromData(response.data);
       if (result.available) {
         final ttl = (result.expiresInSeconds ?? 600).clamp(60, 840);
