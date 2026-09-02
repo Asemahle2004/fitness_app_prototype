@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'profile_service.dart';
+import 'training_settings.dart';
+import 'training_tools_engine.dart';
+import 'unit_display.dart';
 
 class LeanItOnboardingFlow extends StatefulWidget {
   const LeanItOnboardingFlow({super.key});
@@ -24,6 +27,7 @@ class _LeanItOnboardingFlowState extends State<LeanItOnboardingFlow> {
   final Set<String> _areas = {};
   final Set<String> _warnings = {};
 
+  UnitSystem _units = UnitSystem.metric;
   String _sex = 'Male';
   String _activity = 'Moderately active';
   String _experience = 'Beginner';
@@ -60,6 +64,10 @@ class _LeanItOnboardingFlowState extends State<LeanItOnboardingFlow> {
     'A clinician has told me not to exercise this area yet',
   ];
 
+  bool get _metric => _units == UnitSystem.metric;
+  String get _heightUnit => _metric ? 'cm' : 'in';
+  String get _weightUnit => _metric ? 'kg' : 'lb';
+
   @override
   void dispose() {
     _age.dispose();
@@ -70,6 +78,18 @@ class _LeanItOnboardingFlowState extends State<LeanItOnboardingFlow> {
   }
 
   double? _number(String value) => double.tryParse(value.trim().replaceAll(',', '.'));
+
+  double? _canonicalHeight(String value) {
+    final entered = _number(value);
+    if (entered == null) return null;
+    return _metric ? entered : TrainingToolsEngine.inchesToCm(entered);
+  }
+
+  double? _canonicalWeight(String value) {
+    final entered = _number(value);
+    if (entered == null) return null;
+    return TrainingToolsEngine.toCanonicalWeight(entered, _units);
+  }
 
   void _toggle(Set<String> values, String value) {
     setState(() {
@@ -106,9 +126,9 @@ class _LeanItOnboardingFlowState extends State<LeanItOnboardingFlow> {
     }
 
     final age = int.tryParse(_age.text.trim());
-    final height = _number(_height.text);
-    final weight = _number(_weight.text);
-    if (age == null || height == null || weight == null) return;
+    final heightCm = _canonicalHeight(_height.text);
+    final weightKg = _canonicalWeight(_weight.text);
+    if (age == null || heightCm == null || weightKg == null) return;
 
     setState(() => _saving = true);
     try {
@@ -116,8 +136,8 @@ class _LeanItOnboardingFlowState extends State<LeanItOnboardingFlow> {
       await ProfileService(Supabase.instance.client).updateProfile({
         'sex': _sex,
         'age': age,
-        'height_cm': height,
-        'weight_kg': weight,
+        'height_cm': heightCm,
+        'weight_kg': weightKg,
         'main_goal': selectedGoals.first,
         'goals': selectedGoals,
         'activity_level': _activity,
@@ -137,6 +157,12 @@ class _LeanItOnboardingFlowState extends State<LeanItOnboardingFlow> {
         'warning_signs': _limited ? _warnings.toList(growable: false) : <String>[],
         'onboarding_complete': true,
       });
+
+      final scope = Supabase.instance.client.auth.currentUser?.id ?? 'guest';
+      final store = TrainingSettingsStore(userScope: scope);
+      final current = await store.load();
+      await store.save(current.copyWith(unitSystem: _units));
+      UnitDisplay.setSystem(_units);
     } on PostgrestException catch (error) {
       _message(error.message);
     } catch (_) {
@@ -216,13 +242,22 @@ class _LeanItOnboardingFlowState extends State<LeanItOnboardingFlow> {
             const SizedBox(height: 18),
             _section(
               '1. Goals',
-              'Choose all that matter. The first selected goal stays as the primary goal for older LeanIt features; the programme engine uses the complete set.',
+              'Choose all that matter. LeanIt uses the complete set when generating your concurrent programme.',
               _chips(goals, _goals),
             ),
             _section(
               '2. About you',
-              'LeanIt uses these details to choose the right training level, not to invent an unsafe starting weight.',
+              'Choose your units now. LeanIt stores canonical values internally, so you can switch units later without changing your history.',
               Column(children: [
+                SegmentedButton<UnitSystem>(
+                  segments: const [
+                    ButtonSegment(value: UnitSystem.metric, label: Text('Metric')),
+                    ButtonSegment(value: UnitSystem.imperial, label: Text('Imperial')),
+                  ],
+                  selected: {_units},
+                  onSelectionChanged: (value) => setState(() => _units = value.first),
+                ),
+                const SizedBox(height: 12),
                 Row(children: [
                   Expanded(child: TextFormField(
                     controller: _age,
@@ -242,20 +277,24 @@ class _LeanItOnboardingFlowState extends State<LeanItOnboardingFlow> {
                   Expanded(child: TextFormField(
                     controller: _height,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(labelText: 'Height (cm)'),
+                    decoration: InputDecoration(labelText: 'Height ($_heightUnit)'),
                     validator: (value) {
-                      final n = _number(value ?? '');
-                      return n == null || n < 100 || n > 250 ? '100–250 cm' : null;
+                      final cm = _canonicalHeight(value ?? '');
+                      return cm == null || cm < 100 || cm > 250
+                          ? 'Enter a valid height'
+                          : null;
                     },
                   )),
                   const SizedBox(width: 10),
                   Expanded(child: TextFormField(
                     controller: _weight,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(labelText: 'Weight (kg)'),
+                    decoration: InputDecoration(labelText: 'Weight ($_weightUnit)'),
                     validator: (value) {
-                      final n = _number(value ?? '');
-                      return n == null || n < 25 || n > 350 ? '25–350 kg' : null;
+                      final kg = _canonicalWeight(value ?? '');
+                      return kg == null || kg < 25 || kg > 350
+                          ? 'Enter a valid weight'
+                          : null;
                     },
                   )),
                 ]),
