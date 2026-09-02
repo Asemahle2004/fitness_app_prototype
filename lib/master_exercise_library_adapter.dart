@@ -69,7 +69,7 @@ class MasterExerciseLibraryAdapter {
     return OnlineExercise(
       id: source?.id ?? _slug(definition.name),
       name: definition.name,
-      category: definition.section,
+      category: _workoutEditorCategory(definition),
       primaryMuscles: primary,
       secondaryMuscles: secondary.toList(growable: false),
       equipment: equipment,
@@ -98,6 +98,22 @@ class MasterExerciseLibraryAdapter {
       mediaReviewNotes: source?.mediaReviewNotes ??
           'Built-in LeanIt exercise taxonomy. Demonstration media is not attached until separately reviewed.',
     );
+  }
+
+  /// The existing custom-workout mapper recognises `stretch` and `cardio`
+  /// categories as timed blocks. Keep anatomical grouping in the master
+  /// definition/UI, but expose a compatible category for non-strength work so
+  /// a running drill or cooldown is never added as 3 sets of 8-12 reps.
+  static String _workoutEditorCategory(MasterExerciseDefinition definition) {
+    if (definition.exerciseType == 'Strength & Muscle') {
+      return definition.section;
+    }
+    if (definition.exerciseType.contains('Stretching') ||
+        definition.exerciseType == 'Cooldown' ||
+        definition.exerciseType == 'Running Cooldown') {
+      return '${definition.section} Stretch';
+    }
+    return '${definition.section} Cardio';
   }
 
   static OnlineExercise? _findSource(
