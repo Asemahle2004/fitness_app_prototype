@@ -15,7 +15,7 @@ class EvidenceRule {
   final Set<String> allowedSubstitutions;
   final Set<String> environments;
   final Set<String> equipment;
-  final List<String> sources;
+  final Set<String> sources;
   final EvidenceReviewStatus reviewStatus;
   final String reviewerNote;
 
