@@ -148,15 +148,48 @@ class _ExerciseMediaState extends State<ExerciseMedia> {
 
   Widget _providerPhoto(String url) {
     // Provider URLs contain short-lived media credentials. Image.network keeps
-    // them out of the app's persistent disk cache; never store these URLs in
+    // them out of LeanIt's persistent disk cache; never store these URLs in
     // SharedPreferences, Supabase or analytics.
-    return Image.network(
-      url,
-      fit: widget.fit,
-      gaplessPlayback: true,
-      loadingBuilder: (context, child, progress) =>
-          progress == null ? child : _loadingPhoto(),
-      errorBuilder: (_, __, ___) => _fallback(),
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Image.network(
+          url,
+          fit: widget.fit,
+          gaplessPlayback: true,
+          loadingBuilder: (context, child, progress) =>
+              progress == null ? child : _loadingPhoto(),
+          errorBuilder: (_, __, ___) => _fallback(),
+        ),
+        Positioned(
+          left: widget.compact ? 4 : 10,
+          right: widget.compact ? 4 : 10,
+          bottom: widget.compact ? 4 : 10,
+          child: Container(
+            padding: EdgeInsets.symmetric(
+              horizontal: widget.compact ? 5 : 9,
+              vertical: widget.compact ? 3 : 6,
+            ),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.72),
+              borderRadius: BorderRadius.circular(widget.compact ? 6 : 10),
+            ),
+            child: Text(
+              widget.compact
+                  ? 'MUSCLEWIKI'
+                  : 'Exercise data and videos provided by MuscleWiki.com',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: widget.compact ? 7 : 10,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
