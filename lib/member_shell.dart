@@ -12,6 +12,7 @@ import 'lean_eat_theme.dart';
 import 'leanit_control_center_screen.dart';
 import 'leanit_home_dashboard.dart';
 import 'leanit_preferences.dart';
+import 'leanit_training_lab_screen.dart';
 import 'notification_service.dart';
 import 'progress_screen.dart';
 import 'readiness_screen.dart';
@@ -171,6 +172,61 @@ class _LeanEatMemberShellState extends State<LeanEatMemberShell>
     });
   }
 
+  Future<void> _openTrainingLab() async {
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(builder: (_) => const LeanItTrainingLabScreen()),
+    );
+    if (!mounted) return;
+    await _refreshStrengthAdaptation();
+    setState(() {
+      _homeRevision += 1;
+      _pages[0] = LeanItHomeDashboard(
+        key: ValueKey('home-$_homeRevision'),
+        fallbackProgrammeHome: widget.programmeHome,
+      );
+    });
+  }
+
+  Future<void> _openToolsMenu() async {
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.science_outlined),
+                title: const Text('Training Lab'),
+                subtitle: const Text(
+                  '100 m→Marathon plans, muscle recovery, RPE/RIR, programme library, evidence, offline tools and integrations.',
+                ),
+                onTap: () => Navigator.pop(sheetContext, 'lab'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.tune_rounded),
+                title: const Text('Settings & Tools'),
+                subtitle: const Text(
+                  'Units, reminders, accessibility, sync, diagnostics and app health.',
+                ),
+                onTap: () => Navigator.pop(sheetContext, 'settings'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (selected == 'lab') {
+      await _openTrainingLab();
+    } else if (selected == 'settings') {
+      await _openControlCenter();
+    }
+  }
+
   static const _destinations = <NavigationDestination>[
     NavigationDestination(
       icon: Icon(Icons.home_outlined),
@@ -219,9 +275,9 @@ class _LeanEatMemberShellState extends State<LeanEatMemberShell>
       ),
       floatingActionButton: _index == 5
           ? FloatingActionButton.extended(
-              onPressed: _openControlCenter,
-              icon: const Icon(Icons.tune_rounded),
-              label: const Text('SETTINGS & TOOLS'),
+              onPressed: _openToolsMenu,
+              icon: const Icon(Icons.dashboard_customize_rounded),
+              label: const Text('LEANIT TOOLS'),
             )
           : null,
       bottomNavigationBar: NavigationBar(
