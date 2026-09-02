@@ -7,6 +7,7 @@ import 'exercise_favorite_store.dart';
 import 'exercise_preference_ranking.dart';
 import 'exercise_preference_store.dart';
 import 'exercise_repository.dart';
+import 'master_exercise_library_adapter.dart';
 import 'profile_service.dart';
 import 'safety_engine.dart';
 import 'workout_engine.dart';
@@ -91,7 +92,11 @@ class ExerciseSwapService {
       }
     }
 
-    final catalogue = await repository.fetchAll();
+    // The source repository carries reviewed media/instructions where they
+    // exist. The adapter then guarantees that live Replace sees the same 400+
+    // master exercise pool used by the programme generator and workout editor.
+    final source = await repository.fetchAll();
+    final catalogue = MasterExerciseLibraryAdapter.mergeWithSource(source);
     if (catalogue.isEmpty) {
       return const ExerciseSwapResult(
         suggestions: [],
@@ -102,7 +107,8 @@ class ExerciseSwapService {
     final usedNames = sessionExercises
         .map((exercise) => exercise.name.trim().toLowerCase())
         .toSet();
-    final preferredLocations = _strings(profileMap?['training_locations']).toSet();
+    final preferredLocations =
+        _strings(profileMap?['training_locations']).toSet();
     final homeEquipment = _strings(profileMap?['home_equipment']).toSet();
     final gymAccess = profileMap?['gym_access']?.toString();
     final preferenceSnapshot = await preferences.load();
@@ -126,8 +132,8 @@ class ExerciseSwapService {
       }
 
       if (preferredLocations.isNotEmpty && candidate.locations.isNotEmpty) {
-        final locationMatch =
-            candidate.locations.any((location) => preferredLocations.contains(location));
+        final locationMatch = candidate.locations
+            .any((location) => preferredLocations.contains(location));
         if (!locationMatch) continue;
       }
 
@@ -174,7 +180,7 @@ class ExerciseSwapService {
     });
 
     return ExerciseSwapResult(
-      suggestions: ranked.take(3).toList(growable: false),
+      suggestions: ranked.take(5).toList(growable: false),
       message: ranked.isEmpty
           ? 'LeanIt could not find a suitable alternative that preserves the main training purpose with the current equipment filters.'
           : null,
@@ -184,9 +190,7 @@ class ExerciseSwapService {
   Future<void> rejectSuggestion(String exerciseName) async {
     try {
       await preferences.recordRejectedSuggestion(exerciseName);
-    } catch (_) {
-      // Preference memory is helpful but must never block a workout.
-    }
+    } catch (_) {}
   }
 
   Future<void> saveSwap({
@@ -200,12 +204,10 @@ class ExerciseSwapService {
         await preferences.recordDislike(fromExercise);
       }
       await preferences.recordSelectedAlternative(toExercise);
-    } catch (_) {
-      // Learned preferences remain local-first and optional.
-    }
+    } catch (_) {}
 
     final now = DateTime.now();
-    final record = {
+    final record = <String, dynamic>{
       'workout_title': workoutTitle,
       'from_exercise': fromExercise,
       'to_exercise': toExercise,
@@ -231,8 +233,7 @@ class ExerciseSwapService {
         ...record,
       });
     } catch (_) {
-      // Local swap history is authoritative while cloud sync/table access is
-      // unavailable. A missing optional analytics table must not block training.
+      // Optional analytics must never block training.
     }
   }
 
@@ -302,9 +303,6 @@ class ExerciseSwapRanker {
     final intendedPrimary = _muscleTokens(firstTarget);
     final candidatePrimary = _muscleTokens(candidate.primaryMuscles.join(' '));
 
-    // A replacement should preserve the main programme role, not merely share
-    // a secondary muscle. For example a reverse fly is not a chest-press
-    // replacement just because both movements involve the shoulders.
     if (intendedPrimary.isNotEmpty &&
         candidatePrimary.intersection(intendedPrimary).isEmpty) {
       return false;
@@ -413,22 +411,20 @@ class ExerciseSwapRanker {
         why.add('beginner-friendly');
       } else if (difficulty == 'intermediate') {
         score += 3;
-      } else if (difficulty == 'expert') {
+      } else if (difficulty == 'advanced' || difficulty == 'expert') {
         score -= 10;
       }
       if (candidateEquipment.contains('bodyweight')) score += 3;
     }
 
-    if (reason == ExerciseSwapReason.variation) {
-      if (muscleOverlap > 0 && patternOverlap == 0) {
-        score += 5;
-        why.add('new variation for the same target');
-      }
+    if (reason == ExerciseSwapReason.variation &&
+        muscleOverlap > 0 &&
+        patternOverlap == 0) {
+      score += 5;
+      why.add('new variation for the same target');
     }
 
     if (reason == ExerciseSwapReason.painDiscomfort) {
-      // SafetyEngine filtering happens before scoring. Keep the ranking modest
-      // so matching the target does not override the conservative safety gate.
       score += 2;
       why.add('passes saved limitation filter');
     }
@@ -437,24 +433,29 @@ class ExerciseSwapRanker {
       score += 3;
     }
 
-    return ExerciseSwapScore(score, why.toSet().take(3).toList(growable: false));
+    return ExerciseSwapScore(
+      score,
+      why.toSet().take(3).toList(growable: false),
+    );
   }
 
   static Set<String> _muscleTokens(String value) {
     final text = value.toLowerCase();
     const groups = <String, List<String>>{
       'chest': ['chest', 'pec'],
-      'back': ['back', 'lat', 'lats', 'traps'],
+      'back': ['back', 'lat', 'lats', 'traps', 'rhomboid'],
       'shoulders': ['shoulder', 'shoulders', 'delts', 'rear delts'],
-      'biceps': ['biceps', 'bicep'],
+      'biceps': ['biceps', 'bicep', 'brachialis'],
       'triceps': ['triceps', 'tricep'],
       'quads': ['quads', 'quadriceps'],
       'hamstrings': ['hamstring', 'hamstrings'],
       'glutes': ['glute', 'glutes'],
-      'calves': ['calf', 'calves'],
-      'core': ['core', 'abdominals', 'abs'],
-      'hips': ['hip', 'hips', 'abductors', 'adductors'],
-      'forearms': ['forearm', 'forearms'],
+      'calves': ['calf', 'calves', 'soleus'],
+      'shins': ['shin', 'tibialis'],
+      'core': ['core', 'abdominals', 'abs', 'oblique'],
+      'hips': ['hip', 'hips', 'abductors', 'adductors', 'inner thigh'],
+      'forearms': ['forearm', 'forearms', 'grip'],
+      'neck': ['neck'],
     };
 
     final result = <String>{};
@@ -474,8 +475,10 @@ class ExerciseSwapRanker {
       'lunge': ['lunge', 'split squat', 'step-up', 'step up'],
       'hinge': ['deadlift', 'romanian', 'hinge', 'good morning'],
       'bridge': ['bridge', 'hip thrust'],
-      'core': ['plank', 'dead bug', 'bird dog', 'core'],
+      'core': ['plank', 'dead bug', 'bird dog', 'core', 'rollout'],
       'cardio': ['run', 'walk', 'cycle', 'cardio', 'interval'],
+      'carry': ['carry', 'farmer'],
+      'rotation': ['rotation', 'wood chop', 'pallof'],
     };
     for (final entry in groups.entries) {
       if (entry.value.any(text.contains)) result.add(entry.key);
