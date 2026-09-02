@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'progress_insights_engine.dart';
+import 'unit_display.dart';
 
 class ProgressInsightsSection extends StatelessWidget {
   final ProgressInsights insights;
@@ -17,9 +18,11 @@ class ProgressInsightsSection extends StatelessWidget {
     return minutes == 0 ? '${hours}h' : '${hours}h ${minutes}m';
   }
 
-  String _volume(double value) {
-    if (value >= 1000) return '${(value / 1000).toStringAsFixed(1)}k kg·reps';
-    return '${value.round()} kg·reps';
+  String _volume(double canonicalKgReps) {
+    final value = UnitDisplay.displayWeightValue(canonicalKgReps);
+    final unit = '${UnitDisplay.weightUnit}·reps';
+    if (value >= 1000) return '${(value / 1000).toStringAsFixed(1)}k $unit';
+    return '${value.round()} $unit';
   }
 
   String _trend(double? change, double current, double previous) {
