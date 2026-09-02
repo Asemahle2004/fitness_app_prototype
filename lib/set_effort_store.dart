@@ -25,13 +25,15 @@ class SetEffortRecord {
 
   double get estimatedRpe {
     if (rpe != null) return rpe!.clamp(1, 10).toDouble();
-    if (rir != null) return (10 - rir!.clamp(0, 5)).clamp(5, 10).toDouble();
+    if (rir != null) {
+      return (10 - rir!.clamp(0, 5).toInt()).clamp(5, 10).toDouble();
+    }
     return 7.5;
   }
 
   int get estimatedRir {
-    if (rir != null) return rir!.clamp(0, 5);
-    if (rpe != null) return (10 - rpe!.round()).clamp(0, 5);
+    if (rir != null) return rir!.clamp(0, 5).toInt();
+    if (rpe != null) return (10 - rpe!.round()).clamp(0, 5).toInt();
     return 2;
   }
 
@@ -124,7 +126,7 @@ class SetEffortStore {
     DateTime? recordedAt,
   }) async {
     final safeRpe = rpe == null ? null : rpe.clamp(1, 10).toDouble();
-    final safeRir = rir == null ? null : rir.clamp(0, 5);
+    final safeRir = rir == null ? null : rir.clamp(0, 5).toInt();
     final at = recordedAt ?? DateTime.now();
     final record = SetEffortRecord(
       id: id ?? 'effort_${at.microsecondsSinceEpoch}',
