@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'training_profile_context.dart';
+
 class LeanEatProfile {
   final String id;
   final String? fullName;
@@ -36,9 +38,6 @@ class ProfileService {
   final SupabaseClient client;
   const ProfileService(this.client);
 
-  /// Incremented whenever this app changes the signed-in profile. Screens that
-  /// route based on onboarding state can listen to this and refresh immediately
-  /// instead of waiting for the next sign-in or app restart.
   static final ValueNotifier<int> revision = ValueNotifier<int>(0);
 
   Future<LeanEatProfile?> currentProfile() async {
@@ -49,19 +48,44 @@ class ProfileService {
 
   Future<Map<String, dynamic>?> currentProfileMap() async {
     final user = client.auth.currentUser;
-    if (user == null) return null;
+    if (user == null) {
+      TrainingProfileContext.updateFromMap(null);
+      return null;
+    }
     final row = await client.from('profiles').select().eq('id', user.id).maybeSingle();
-    return row == null ? null : Map<String, dynamic>.from(row);
+    if (row == null) {
+      TrainingProfileContext.updateFromMap(null);
+      return null;
+    }
+    final profile = Map<String, dynamic>.from(row);
+    TrainingProfileContext.updateFromMap(profile);
+    return profile;
   }
 
   Future<void> updateProfile(Map<String, dynamic> updates) async {
     final user = client.auth.currentUser;
     if (user == null) return;
+
+    final payload = <String, dynamic>{...updates};
+    final mainGoal = payload['main_goal']?.toString().trim();
+    if (!payload.containsKey('goals') && mainGoal != null && mainGoal.isNotEmpty) {
+      payload['goals'] = <String>[mainGoal];
+    }
+
     await client.from('profiles').upsert({
       'id': user.id,
-      ...updates,
+      ...payload,
       'updated_at': DateTime.now().toIso8601String(),
     });
+
+    final current = await client
+        .from('profiles')
+        .select()
+        .eq('id', user.id)
+        .maybeSingle();
+    if (current != null) {
+      TrainingProfileContext.updateFromMap(Map<String, dynamic>.from(current));
+    }
     revision.value += 1;
   }
 
