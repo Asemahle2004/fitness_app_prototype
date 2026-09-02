@@ -1,121 +1,27 @@
+import 'exercise_source_aliases.dart';
+import 'master_exercise_catalogue.dart';
+
 /// Product-level gate between broad imported exercise data and exercises that
-/// LeanIt is willing to expose as programme-ready.
+/// LeanIt is willing to expose as programme-ready or library-ready.
 ///
-/// This shortlist is deliberately conservative. An imported exercise is not
-/// approved merely because it has a name, instructions or a licensed image.
-/// New movements must be reviewed for programme purpose, practicality,
-/// teachability, substitution behaviour, safety metadata and media quality.
+/// The master catalogue is intentionally explicit rather than accepting every
+/// exercise returned by an external database. This keeps the public library
+/// understandable while still covering strength, muscle groups, cardio,
+/// mobility, warm-up/cooldown and running-specific preparation.
 class ExerciseCuration {
   const ExerciseCuration._();
 
-  /// Canonical movements currently allowed to enter LeanIt's programme-facing
-  /// exercise catalogue. The list covers the movements emitted by the current
-  /// programme engine plus its running/cardio session building blocks.
-  static const List<String> approvedCanonicalNames = [
-    'Band Biceps Curl',
-    'Band Pull-Apart',
-    'Band Romanian Deadlift',
-    'Band Row',
-    'Banded Squat',
-    'Barbell Bench Press',
-    'Bird Dog',
-    'Bodyweight Squat',
-    'Brisk Walk',
-    'Bulgarian Split Squat',
-    'Cable Lateral Raise',
-    'Cable Overhead Extension',
-    'Calf Raise',
-    'Calf Stretch',
-    'Cat-Cow',
-    'Chest-Supported Dumbbell Row',
-    'Chin-Up',
-    'Close-Grip Push-Up',
-    'Dead Bug',
-    'Diamond Push-Up',
-    'Dumbbell Bench Press',
-    'Dumbbell Curl',
-    'Dumbbell Floor Press',
-    'Dumbbell Pullover',
-    'Dumbbell Romanian Deadlift',
-    'Dumbbell Shoulder Press',
-    'Easy Run',
-    'Elliptical',
-    'EZ-Bar Curl',
-    'Face Pull',
-    'Fartlek Run',
-    'Glute Bridge',
-    'Goblet Squat',
-    'Hammer Curl',
-    'Hamstring Stretch',
-    'High Knees',
-    'Hip Flexor Stretch',
-    'Hip Thrust',
-    'Incline Dumbbell Press',
-    'Interval Run',
-    'Lat Pulldown',
-    'Lateral Raise',
-    'Leg Curl',
-    'Leg Press',
-    'Long Easy Run',
-    'Machine Chest Press',
-    'Machine Shoulder Press',
-    'March in Place',
-    'Mountain Climber',
-    'One-Arm Dumbbell Row',
-    'Overhead Triceps Extension',
-    'Pike Push-Up',
-    'Plank',
-    'Plank Shoulder Tap',
-    'Prone Y-T Raise',
-    'Pull-Up',
-    'Push-Up',
-    'Recovery Run',
-    'Reverse Fly',
-    'Reverse Lunge',
-    'Romanian Deadlift',
-    'Run-Walk Intervals',
-    'Seated Cable Row',
-    'Seated Calf Raise',
-    'Seated Dumbbell Shoulder Press',
-    'Seated Leg Curl',
-    'Side Plank',
-    'Split Squat',
-    'Standing Calf Raise',
-    'Stationary Bike',
-    'Step-Up',
-    'T-Bar Row',
-    'Tempo Run',
-    'Thoracic Rotation',
-    'Treadmill Easy Run',
-    'Treadmill Intervals',
-    'Triceps Pushdown',
-    'Warm-Up Walk',
-  ];
+  /// Canonical movements approved for LeanIt's Exercise Library.
+  ///
+  /// Names are deduplicated by [MasterExerciseCatalogue] even when a movement
+  /// belongs to several muscle/group filters.
+  static final List<String> approvedCanonicalNames =
+      List<String>.unmodifiable(
+    MasterExerciseCatalogue.definitions.map((item) => item.name),
+  );
 
-  /// Explicit source-name aliases. These are only naming/media bridges; they
-  /// do not silently create new programme exercises.
-  static const Map<String, List<String>> _sourceAliases = {
-    'Barbell Bench Press': ['Barbell Bench Press - Medium Grip'],
-    'Cable Lateral Raise': ['Cable Seated Lateral Raise'],
-    'Cable Overhead Extension': ['Triceps Overhead Extension with Rope'],
-    'Calf Raise': ['Standing Calf Raises'],
-    'Hip Thrust': ['Barbell Hip Thrust'],
-    'Lat Pulldown': ['Wide-Grip Lat Pulldown', 'Close-Grip Front Lat Pulldown'],
-    'Machine Chest Press': ['Leverage Chest Press'],
-    'Machine Shoulder Press': [
-      'Machine Shoulder (Military) Press',
-      'Leverage Shoulder Press',
-    ],
-    'Pull-Up': ['Pullups'],
-    'Push-Up': ['Pushups'],
-    'Seated Cable Row': ['Seated Cable Rows'],
-    'Split Squat': ['Split Squat with Dumbbells'],
-    'T-Bar Row': ['Lying T-Bar Row'],
-  };
-
-  static List<String> aliasesFor(String canonicalName) {
-    return _sourceAliases[canonicalName] ?? const <String>[];
-  }
+  static List<String> aliasesFor(String canonicalName) =>
+      ExerciseSourceAliases.forCanonical(canonicalName);
 
   static bool isApprovedCanonicalName(String name) {
     final normalized = _normalize(name);
@@ -126,10 +32,7 @@ class ExerciseCuration {
 
   static bool isExplicitApprovedSourceName(String name) {
     if (isApprovedCanonicalName(name)) return true;
-    final normalized = _normalize(name);
-    return _sourceAliases.values.expand((values) => values).any(
-          (alias) => _normalize(alias) == normalized,
-        );
+    return ExerciseSourceAliases.containsSourceName(name);
   }
 
   static String _normalize(String value) {
