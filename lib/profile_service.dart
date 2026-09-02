@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'training_profile_context.dart';
@@ -39,6 +42,38 @@ class ProfileService {
   const ProfileService(this.client);
 
   static final ValueNotifier<int> revision = ValueNotifier<int>(0);
+  static const _profileCachePrefix = 'leanit_profile_cache_v1';
+
+  String _cacheKey(String userId) =>
+      '${_profileCachePrefix}_${userId.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_')}';
+
+  Future<Map<String, dynamic>?> _loadCachedProfile(String userId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_cacheKey(userId));
+    if (raw == null || raw.trim().isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return null;
+      final profile = Map<String, dynamic>.from(decoded);
+      if (profile['id']?.toString() != userId) return null;
+      return profile;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _cacheProfile(
+    String userId,
+    Map<String, dynamic> profile,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_cacheKey(userId), jsonEncode(profile));
+  }
+
+  Future<void> _clearCachedProfile(String userId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_cacheKey(userId));
+  }
 
   Future<LeanEatProfile?> currentProfile() async {
     final row = await currentProfileMap();
@@ -52,14 +87,31 @@ class ProfileService {
       TrainingProfileContext.updateFromMap(null);
       return null;
     }
-    final row = await client.from('profiles').select().eq('id', user.id).maybeSingle();
-    if (row == null) {
-      TrainingProfileContext.updateFromMap(null);
-      return null;
+
+    try {
+      final row = await client
+          .from('profiles')
+          .select()
+          .eq('id', user.id)
+          .maybeSingle()
+          .timeout(const Duration(seconds: 4));
+      if (row == null) {
+        await _clearCachedProfile(user.id);
+        TrainingProfileContext.updateFromMap(null);
+        return null;
+      }
+      final profile = Map<String, dynamic>.from(row);
+      await _cacheProfile(user.id, profile);
+      TrainingProfileContext.updateFromMap(profile);
+      return profile;
+    } catch (_) {
+      final cached = await _loadCachedProfile(user.id);
+      if (cached != null) {
+        TrainingProfileContext.updateFromMap(cached);
+        return cached;
+      }
+      rethrow;
     }
-    final profile = Map<String, dynamic>.from(row);
-    TrainingProfileContext.updateFromMap(profile);
-    return profile;
   }
 
   Future<void> updateProfile(Map<String, dynamic> updates) async {
@@ -84,7 +136,9 @@ class ProfileService {
         .eq('id', user.id)
         .maybeSingle();
     if (current != null) {
-      TrainingProfileContext.updateFromMap(Map<String, dynamic>.from(current));
+      final profile = Map<String, dynamic>.from(current);
+      await _cacheProfile(user.id, profile);
+      TrainingProfileContext.updateFromMap(profile);
     }
     revision.value += 1;
   }
