@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'guided_run_engine.dart';
 import 'personal_record_celebration.dart';
 import 'personal_record_engine.dart';
+import 'run_location_settings.dart';
 import 'run_tracking_engine.dart';
 import 'run_tracking_store.dart';
 import 'training_settings.dart';
@@ -206,10 +207,7 @@ class _LiveRunScreenState extends State<LiveRunScreen> {
 
   Future<void> _subscribeGps() async {
     await _positionSubscription?.cancel();
-    const settings = LocationSettings(
-      accuracy: LocationAccuracy.high,
-      distanceFilter: 5,
-    );
+    final settings = buildRunLocationSettings();
 
     try {
       final initial = await Geolocator.getCurrentPosition(
@@ -618,7 +616,7 @@ class _LiveRunScreenState extends State<LiveRunScreen> {
                 ),
                 const SizedBox(height: 14),
                 const Text(
-                  'Foreground tracking only: keep LeanIt open while the run is active.',
+                  'On Android, LeanIt keeps an active-run notification so GPS can continue when you press Home or turn the screen off. Pause or finish the run to stop tracking.',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.white60, fontSize: 12),
                 ),
