@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'exercise_curation.dart';
 import 'exercise_repository.dart';
+import 'musclewiki_media_service.dart';
 import 'profile_service.dart';
 
 class ExerciseMedia extends StatefulWidget {
@@ -28,39 +29,47 @@ class ExerciseMedia extends StatefulWidget {
 
 class _ExerciseMediaState extends State<ExerciseMedia> {
   late final ExerciseRepository _repository;
-  late Future<OnlineExercise?> _future;
-  late Future<LeanEatProfile?> _profileFuture;
+  late final MuscleWikiMediaService _provider;
+  late Future<_ExerciseMediaBundle> _future;
 
   @override
   void initState() {
     super.initState();
     final client = Supabase.instance.client;
     _repository = ExerciseRepository(client);
-    _future = _resolveExerciseMedia(widget.exerciseName);
-    _profileFuture = ProfileService(client).currentProfile();
+    _provider = MuscleWikiMediaService(client);
+    _future = _load(widget.exerciseName);
   }
 
   @override
   void didUpdateWidget(covariant ExerciseMedia oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.exerciseName != widget.exerciseName) {
-      _future = _resolveExerciseMedia(widget.exerciseName);
+      _future = _load(widget.exerciseName);
     }
   }
 
-  Future<OnlineExercise?> _resolveExerciseMedia(String exerciseName) async {
+  Future<_ExerciseMediaBundle> _load(String exerciseName) async {
+    final profile = await ProfileService(Supabase.instance.client).currentProfile();
+    final providerMedia = await _provider.resolve(
+      exerciseName: exerciseName,
+      sex: profile?.preferredVisualSex,
+    );
+    final legacy = await _resolveLegacyMedia(exerciseName);
+    return _ExerciseMediaBundle(
+      profile: profile,
+      provider: providerMedia,
+      legacy: legacy,
+    );
+  }
+
+  Future<OnlineExercise?> _resolveLegacyMedia(String exerciseName) async {
     final direct = await _repository.fetchByName(exerciseName);
     if (_hasRenderableImage(direct)) return direct;
-
-    // A canonical LeanIt/Supabase record may intentionally own the exercise
-    // metadata while its reviewed image is still empty. In that case, use only
-    // an explicit curated source alias for reference media rather than letting
-    // the blank canonical row hide an existing licensed demonstration.
     for (final alias in ExerciseCuration.aliasesFor(exerciseName)) {
       final candidate = await _repository.fetchByName(alias);
       if (_hasRenderableImage(candidate)) return candidate;
     }
-
     return direct;
   }
 
@@ -80,7 +89,7 @@ class _ExerciseMediaState extends State<ExerciseMedia> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(
-            Icons.photo_camera_back_outlined,
+            Icons.fitness_center_outlined,
             size: widget.compact ? 24 : 54,
             color: const Color(0xFF2F7D5C),
           ),
@@ -99,7 +108,7 @@ class _ExerciseMediaState extends State<ExerciseMedia> {
           if (!widget.compact) ...[
             const SizedBox(height: 6),
             const Text(
-              'Reviewed LeanIt photo demonstration is being prepared.',
+              'Standardised male/female demonstration mapping is pending for this exercise.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 12,
@@ -137,7 +146,21 @@ class _ExerciseMediaState extends State<ExerciseMedia> {
     );
   }
 
-  Widget _cachedPhoto(String imagePath) {
+  Widget _providerPhoto(String url) {
+    // Provider URLs contain short-lived media credentials. Image.network keeps
+    // them out of the app's persistent disk cache; never store these URLs in
+    // SharedPreferences, Supabase or analytics.
+    return Image.network(
+      url,
+      fit: widget.fit,
+      gaplessPlayback: true,
+      loadingBuilder: (context, child, progress) =>
+          progress == null ? child : _loadingPhoto(),
+      errorBuilder: (_, __, ___) => _fallback(),
+    );
+  }
+
+  Widget _legacyCachedPhoto(String imagePath) {
     final imageUrl = _repository.publicImageUrl(imagePath);
     return CachedNetworkImage(
       imageUrl: imageUrl,
@@ -152,7 +175,7 @@ class _ExerciseMediaState extends State<ExerciseMedia> {
     return Stack(
       fit: StackFit.expand,
       children: [
-        _cachedPhoto(imagePath),
+        _legacyCachedPhoto(imagePath),
         Positioned(
           left: widget.compact ? 4 : 10,
           right: widget.compact ? 4 : 10,
@@ -168,8 +191,8 @@ class _ExerciseMediaState extends State<ExerciseMedia> {
             ),
             child: Text(
               widget.compact
-                  ? 'REFERENCE'
-                  : 'REFERENCE IMAGE • TECHNIQUE REVIEW PENDING',
+                  ? 'LEGACY'
+                  : 'LEGACY REFERENCE • UNIFIED PROVIDER MAPPING PENDING',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
@@ -186,34 +209,51 @@ class _ExerciseMediaState extends State<ExerciseMedia> {
     );
   }
 
+  Widget _legacy(_ExerciseMediaBundle bundle) {
+    final online = bundle.legacy;
+    final reviewedPath =
+        online?.reviewedImageForSex(bundle.profile?.preferredVisualSex);
+    if (reviewedPath != null && reviewedPath.isNotEmpty) {
+      return _legacyCachedPhoto(reviewedPath);
+    }
+    final referencePath =
+        online?.hasReferenceGenericImage == true ? online?.imagePath : null;
+    if (referencePath != null && referencePath.isNotEmpty) {
+      return _referencePhoto(referencePath);
+    }
+    return _fallback();
+  }
+
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<Object?>>(
-      future: Future.wait<Object?>([_future, _profileFuture]),
+    return FutureBuilder<_ExerciseMediaBundle>(
+      future: _future,
       builder: (context, snapshot) {
-        final values = snapshot.data;
-        final online = values != null && values.isNotEmpty
-            ? values[0] as OnlineExercise?
-            : null;
-        final profile = values != null && values.length > 1
-            ? values[1] as LeanEatProfile?
-            : null;
-
-        final reviewedPath =
-            online?.reviewedImageForSex(profile?.preferredVisualSex);
-        if (reviewedPath != null && reviewedPath.isNotEmpty) {
-          return _cachedPhoto(reviewedPath);
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return _loadingPhoto();
         }
-
-        final referencePath = online?.hasReferenceGenericImage == true
-            ? online?.imagePath
-            : null;
-        if (referencePath != null && referencePath.isNotEmpty) {
-          return _referencePhoto(referencePath);
+        final bundle = snapshot.data;
+        if (bundle == null) return _fallback();
+        final providerImage = bundle.provider.imageUrl;
+        if (bundle.provider.available &&
+            providerImage != null &&
+            providerImage.isNotEmpty) {
+          return _providerPhoto(providerImage);
         }
-
-        return _fallback();
+        return _legacy(bundle);
       },
     );
   }
+}
+
+class _ExerciseMediaBundle {
+  final LeanEatProfile? profile;
+  final MuscleWikiMediaResult provider;
+  final OnlineExercise? legacy;
+
+  const _ExerciseMediaBundle({
+    required this.profile,
+    required this.provider,
+    required this.legacy,
+  });
 }

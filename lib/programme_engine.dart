@@ -1,3 +1,5 @@
+import 'training_profile_context.dart';
+
 class PlannedSession {
   final String day;
   final String title;
@@ -66,22 +68,69 @@ class ProgrammeEngine {
     bool hasLimitation = false,
     Set<String> affectedAreas = const <String>{},
   }) {
-    final sortedDays = availableDays.toList()
-      ..sort((a, b) => _weekOrder.indexOf(a).compareTo(_weekOrder.indexOf(b)));
+    final context = TrainingProfileContext.current;
+    final goals = context != null &&
+            (context.mainGoal == goal || context.goals.contains(goal))
+        ? context.goals
+        : <String>[goal];
+    return generateForGoals(
+      goals: goals,
+      mainGoal: goal,
+      experience: experience,
+      fitnessLevel: fitnessLevel,
+      activityLevel: activityLevel,
+      availableDays: availableDays,
+      locations: locations,
+      homeEquipment: homeEquipment,
+      gymAccess: gymAccess,
+      sessionLength: sessionLength,
+      trainingTime: trainingTime,
+      hasLimitation: hasLimitation,
+      affectedAreas: affectedAreas,
+    );
+  }
 
-    if (!supportedGoals.contains(goal)) {
+  static GeneratedProgramme generateForGoals({
+    required List<String> goals,
+    String? mainGoal,
+    required String experience,
+    required String fitnessLevel,
+    required Set<String> availableDays,
+    required Set<String> locations,
+    required String sessionLength,
+    required String trainingTime,
+    String activityLevel = 'Moderately active',
+    Set<String> homeEquipment = const <String>{},
+    String gymAccess = 'Standard gym',
+    bool hasLimitation = false,
+    Set<String> affectedAreas = const <String>{},
+  }) {
+    final effectiveGoals = <String>[];
+    for (final goal in goals) {
+      if (supportedGoals.contains(goal) && !effectiveGoals.contains(goal)) {
+        effectiveGoals.add(goal);
+      }
+    }
+    if (effectiveGoals.isEmpty &&
+        mainGoal != null &&
+        supportedGoals.contains(mainGoal)) {
+      effectiveGoals.add(mainGoal);
+    }
+    if (effectiveGoals.isEmpty) {
       return GeneratedProgramme(
-        goal: goal,
+        goal: mainGoal ?? 'Unsupported goal',
         structure: 'Goal not supported',
         explanation:
-            'Choose one of the supported goals so a programme can be generated.',
+            'Choose at least one supported training goal so LeanIt can create a programme.',
         sessions: const [],
       );
     }
 
+    final sortedDays = availableDays.toList()
+      ..sort((a, b) => _dayIndex(a).compareTo(_dayIndex(b)));
     if (sortedDays.isEmpty) {
       return GeneratedProgramme(
-        goal: goal,
+        goal: effectiveGoals.join(' + '),
         structure: 'No training days selected',
         explanation:
             'Select at least one available day before creating a programme.',
@@ -90,224 +139,225 @@ class ProgrammeEngine {
     }
 
     final effectiveLocations = locations.isEmpty ? <String>{'Home'} : locations;
-    final sessionCount = _chooseSessionCount(
-      goal: goal,
+    final sessionCount = _sessionCount(
+      goals: effectiveGoals,
       experience: experience,
       fitnessLevel: fitnessLevel,
       activityLevel: activityLevel,
       availableDays: sortedDays.length,
       locations: effectiveLocations,
       homeEquipment: homeEquipment,
-      sessionLength: sessionLength,
       hasLimitation: hasLimitation,
     );
-
-    final selectedTrainingDays = _spreadTrainingDays(sortedDays, sessionCount);
-    final titles = _titlesForGoal(
-      goal: goal,
-      experience: experience,
-      fitnessLevel: fitnessLevel,
-      activityLevel: activityLevel,
-      sessionCount: sessionCount,
-      locations: effectiveLocations,
-      homeEquipment: homeEquipment,
-      hasLimitation: hasLimitation,
+    final selectedDays = _spreadTrainingDays(sortedDays, sessionCount);
+    final titles = _protectConcurrentRecovery(
+      _sessionTitles(
+        goals: effectiveGoals,
+        experience: experience,
+        fitnessLevel: fitnessLevel,
+        activityLevel: activityLevel,
+        sessionCount: sessionCount,
+        locations: effectiveLocations,
+        homeEquipment: homeEquipment,
+      ),
     );
 
     final sessions = <PlannedSession>[];
-    for (int i = 0; i < selectedTrainingDays.length; i++) {
-      final title = titles[i % titles.length];
-      final location = _locationForSession(
-        title,
-        effectiveLocations,
-        homeEquipment: homeEquipment,
-        gymAccess: gymAccess,
-        sessionIndex: i,
-      );
+    for (var index = 0; index < selectedDays.length; index++) {
+      final title = titles[index % titles.length];
       sessions.add(
         PlannedSession(
-          day: selectedTrainingDays[i],
+          day: selectedDays[index],
           title: title,
-          location: location,
+          location: _locationForSession(
+            title,
+            effectiveLocations,
+            homeEquipment: homeEquipment,
+            gymAccess: gymAccess,
+            sessionIndex: index,
+          ),
           duration: sessionLength,
-          focus: _focusForSession(title, goal),
-          intensity: _intensityForSession(
-            title: title,
-            goal: goal,
+          focus: _focus(title, effectiveGoals),
+          intensity: _intensity(
+            title,
             experience: experience,
             fitnessLevel: fitnessLevel,
           ),
-          personalisationNote: _sessionNote(
-            title: title,
-            location: location,
-            goal: goal,
+          personalisationNote: _note(
+            title,
             experience: experience,
-            fitnessLevel: fitnessLevel,
-            activityLevel: activityLevel,
             sessionLength: sessionLength,
-            homeEquipment: homeEquipment,
             hasLimitation: hasLimitation,
+            goals: effectiveGoals,
           ),
         ),
       );
     }
 
+    final combined = effectiveGoals.length > 1;
+    final noRunLocation =
+        _wantsRunning(effectiveGoals) && !_hasRunningLocation(effectiveLocations);
+    final limitationText = hasLimitation
+        ? ' LeanIt’s safety engine applies your saved limitation profile${affectedAreas.isEmpty ? '' : ' for ${affectedAreas.join(', ')}'} at exercise level. These filters do not diagnose injuries or prescribe rehabilitation.'
+        : '';
+    final locationText = noRunLocation
+        ? ' Outside or Gym running is unavailable in your saved locations, so LeanIt uses home cardio and runner-strength substitutes until a running location is available.'
+        : '';
+    final homeEquipmentText = effectiveLocations.contains('Home') &&
+            homeEquipment.isNotEmpty
+        ? ' Home sessions are filtered against your saved home-equipment before exercises are selected.'
+        : '';
+
     return GeneratedProgramme(
-      goal: goal,
-      structure: _structureName(goal, experience, sessionCount),
-      explanation: _explanation(
-        goal: goal,
-        experience: experience,
-        fitnessLevel: fitnessLevel,
-        activityLevel: activityLevel,
-        trainingDays: sortedDays.length,
-        sessionCount: sessionCount,
-        sessionLength: sessionLength,
-        trainingTime: trainingTime,
-        locations: effectiveLocations,
-        homeEquipment: homeEquipment,
-        hasLimitation: hasLimitation,
-        affectedAreas: affectedAreas,
-      ),
+      goal: effectiveGoals.join(' + '),
+      structure: combined
+          ? 'Concurrent ${experience.toLowerCase()} programme • $sessionCount sessions/week'
+          : '${_singleGoalStructure(effectiveGoals.first, experience)} • $sessionCount sessions/week',
+      explanation: combined
+          ? 'LeanIt is training ${effectiveGoals.join(', ')} together instead of forcing one goal. Strength and running/cardio work are distributed across the week so hard lower-body work is not deliberately stacked beside every hard run. Each ${sessionLength.toLowerCase()} session is filled from the master exercise pool and fitted to its real time budget.$homeEquipmentText$limitationText$locationText'
+          : 'This ${experience.toLowerCase()} programme uses your available days, current fitness, training locations and ${sessionLength.toLowerCase()} session preference. The workout generator ranks suitable exercises from LeanIt’s master library, leaving valid same-purpose movements as alternatives.$homeEquipmentText$limitationText$locationText',
       sessions: sessions,
     );
   }
 
-  static int _chooseSessionCount({
-    required String goal,
+  static int _sessionCount({
+    required List<String> goals,
     required String experience,
     required String fitnessLevel,
     required String activityLevel,
     required int availableDays,
     required Set<String> locations,
     required Set<String> homeEquipment,
-    required String sessionLength,
     required bool hasLimitation,
   }) {
     if (availableDays <= 0) return 0;
-
     int preferred;
-    switch (goal) {
-      case 'Build Muscle':
-      case 'Gain Weight':
-        if (experience == 'Beginner') {
-          preferred = 3;
-        } else if (experience == 'Intermediate') {
-          preferred = 4;
-        } else {
-          preferred = 5;
-        }
-        break;
-      case 'Lose Body Fat':
-        preferred = experience == 'Beginner'
-            ? 3
-            : experience == 'Intermediate'
-                ? 4
-                : 5;
-        break;
-      case 'Improve General Fitness':
-        preferred = fitnessLevel == 'Low'
-            ? 3
-            : fitnessLevel == 'Moderate'
-                ? 4
-                : 5;
-        break;
-      case 'Start Running':
-        preferred = availableDays >= 4 ? 4 : 3;
-        if (fitnessLevel == 'Low' || activityLevel == 'Mostly sedentary') {
-          preferred = 3;
-        }
-        break;
-      case 'Improve Running Performance':
-        preferred = availableDays >= 6
-            ? 6
-            : availableDays >= 5
-                ? 5
-                : 4;
-        if (fitnessLevel == 'Low') preferred = preferred.clamp(1, 4).toInt();
-        break;
-      default:
-        preferred = 3;
+    if (goals.length > 1) {
+      preferred = experience == 'Beginner' ? 4 : (experience == 'Advanced' ? 6 : 5);
+      if (_wantsRunning(goals) && _wantsStrength(goals)) preferred += 1;
+    } else {
+      switch (goals.first) {
+        case 'Build Muscle':
+        case 'Gain Weight':
+          preferred = experience == 'Beginner'
+              ? 3
+              : (experience == 'Advanced' ? 5 : 4);
+          break;
+        case 'Start Running':
+          preferred = fitnessLevel == 'Low' ? 3 : 4;
+          break;
+        case 'Improve Running Performance':
+          preferred = experience == 'Beginner'
+              ? 4
+              : (experience == 'Advanced' ? 6 : 5);
+          break;
+        case 'Lose Body Fat':
+        case 'Improve General Fitness':
+        default:
+          preferred = experience == 'Beginner'
+              ? 3
+              : (experience == 'Advanced' ? 5 : 4);
+      }
     }
 
-    // A beginner with low current fitness gets a simpler starting frequency,
-    // even when many days are technically available.
-    if (experience == 'Beginner' && fitnessLevel == 'Low') {
-      preferred = preferred.clamp(1, 3).toInt();
+    final sedentary = activityLevel == 'Mostly sedentary' ||
+        activityLevel == 'Mostly inactive';
+    if ((experience == 'Beginner' && fitnessLevel == 'Low') || sedentary) {
+      preferred = preferred.clamp(1, goals.length > 1 ? 4 : 3).toInt();
     }
 
-    // People reporting a mostly sedentary baseline start with fewer hard
-    // commitments for general fitness/fat-loss goals. They can still be active
-    // on non-programme days without LeanIt prescribing another hard session.
-    if (activityLevel == 'Mostly sedentary' &&
-        (goal == 'Lose Body Fat' || goal == 'Improve General Fitness')) {
-      preferred = preferred.clamp(1, 4).toInt();
-    }
-
-    // A home-only muscle-gain plan with very little resistance equipment uses
-    // repeatable full-body work rather than pretending a high-frequency split
-    // has the same loading options as a gym programme.
-    if ((goal == 'Build Muscle' || goal == 'Gain Weight') &&
+    // Preserve the established rule that a home-only muscle plan with very
+    // little resistance equipment should not masquerade as a high-frequency
+    // advanced split.
+    final muscleGoal = goals.any(
+      (goal) => goal == 'Build Muscle' || goal == 'Gain Weight',
+    );
+    if (muscleGoal &&
         locations.length == 1 &&
         locations.contains('Home') &&
         _homeStrengthScore(homeEquipment) < 2) {
       preferred = preferred.clamp(1, 3).toInt();
     }
 
-    // Limitations do not get diagnosed here. We simply avoid escalating a low
-    // fitness starting point; exercise-level exclusions remain SafetyEngine's job.
     if (hasLimitation && fitnessLevel == 'Low') {
-      preferred = preferred.clamp(1, 3).toInt();
+      preferred = preferred.clamp(1, 4).toInt();
     }
-
-    // Very short sessions are already trimmed by WorkoutEngine. Do not respond
-    // by silently multiplying weekly frequency; respect the days the user chose.
-    if (sessionLength == '20 min' && preferred > 5) preferred = 5;
-
-    if (preferred < 1) preferred = 1;
-    return preferred > availableDays ? availableDays : preferred;
+    return preferred.clamp(1, availableDays).toInt();
   }
 
-  static List<String> _spreadTrainingDays(
-    List<String> availableDays,
-    int sessionCount,
-  ) {
-    if (sessionCount <= 0 || availableDays.isEmpty) return [];
-    if (sessionCount >= availableDays.length) {
-      return List<String>.from(availableDays);
-    }
-    if (sessionCount == 1) return [availableDays.first];
-
-    final result = <String>[];
-    for (int i = 0; i < sessionCount; i++) {
-      final position = i * (availableDays.length - 1) / (sessionCount - 1);
-      final index = position.round();
-      if (!result.contains(availableDays[index])) result.add(availableDays[index]);
-    }
-    for (final day in availableDays) {
-      if (result.length >= sessionCount) break;
-      if (!result.contains(day)) result.add(day);
-    }
-    result.sort(
-      (a, b) => _weekOrder.indexOf(a).compareTo(_weekOrder.indexOf(b)),
-    );
-    return result;
-  }
-
-  static List<String> _titlesForGoal({
-    required String goal,
+  static List<String> _sessionTitles({
+    required List<String> goals,
     required String experience,
     required String fitnessLevel,
     required String activityLevel,
     required int sessionCount,
     required Set<String> locations,
     required Set<String> homeEquipment,
-    required bool hasLimitation,
+  }) {
+    if (goals.length == 1) {
+      return _singleGoalTitles(
+        goals.first,
+        experience: experience,
+        fitnessLevel: fitnessLevel,
+        activityLevel: activityLevel,
+        sessionCount: sessionCount,
+        locations: locations,
+        homeEquipment: homeEquipment,
+      );
+    }
+
+    final titles = <String>[];
+    final strength = _wantsStrength(goals);
+    final running = _wantsRunning(goals);
+    final fatLoss = goals.contains('Lose Body Fat');
+
+    if (strength && running) {
+      if (experience == 'Beginner' || sessionCount <= 4) {
+        titles.addAll(['Full Body A', 'Easy Run', 'Full Body B']);
+        if (sessionCount >= 4) titles.add('Long Easy Run');
+      } else {
+        titles.addAll(
+          ['Upper Body A', 'Easy Run', 'Lower Body A', 'Quality Run'],
+        );
+        if (sessionCount >= 5) titles.add('Upper Body B');
+        if (sessionCount >= 6) titles.add('Long Run');
+      }
+    } else if (strength) {
+      titles.addAll(_strengthTitles(experience, sessionCount));
+    } else if (running) {
+      titles.addAll(
+        _runningTitles(
+          performance: goals.contains('Improve Running Performance'),
+          conservative: experience == 'Beginner' || fitnessLevel == 'Low',
+          count: sessionCount,
+          hasRunLocation: _hasRunningLocation(locations),
+        ),
+      );
+    }
+
+    if (fatLoss && titles.length < sessionCount) titles.add('Cardio Base');
+    if (goals.contains('Improve General Fitness') && titles.length < sessionCount) {
+      titles.add('Mobility + Core');
+    }
+    while (titles.length < sessionCount) {
+      titles.add(strength ? 'Full Body Strength' : 'Cardio Base');
+    }
+    return titles.take(sessionCount).toList(growable: false);
+  }
+
+  static List<String> _singleGoalTitles(
+    String goal, {
+    required String experience,
+    required String fitnessLevel,
+    required String activityLevel,
+    required int sessionCount,
+    required Set<String> locations,
+    required Set<String> homeEquipment,
   }) {
     final conservative = experience == 'Beginner' ||
         fitnessLevel == 'Low' ||
+        activityLevel == 'Mostly inactive' ||
         activityLevel == 'Mostly sedentary';
-
     switch (goal) {
       case 'Build Muscle':
       case 'Gain Weight':
@@ -319,170 +369,176 @@ class ProgrammeEngine {
               .toList(growable: false);
         }
         return _strengthTitles(experience, sessionCount);
-
-      case 'Lose Body Fat':
-        if (conservative) {
-          const base = [
-            'Full Body Strength',
-            'Cardio Base',
-            'Full Body Conditioning',
-            'Mobility + Core',
-            'Cardio Base',
-          ];
-          return base.take(sessionCount).toList(growable: false);
-        }
-        switch (sessionCount) {
-          case 1:
-            return ['Full Body Conditioning'];
-          case 2:
-            return ['Full Body Strength + Conditioning', 'Cardio Base'];
-          case 3:
-            return ['Full Body Strength', 'Cardio Intervals', 'Full Body Conditioning'];
-          case 4:
-            return [
-              'Upper Body Conditioning',
-              'Lower Body Conditioning',
-              'Cardio Base',
-              'Full Body Conditioning',
-            ];
-          default:
-            return [
-              'Upper Body Strength',
-              'Lower Body Strength',
-              'Cardio Intervals',
-              'Full Body Conditioning',
-              'Cardio Base',
-            ];
-        }
-
-      case 'Improve General Fitness':
-        if (conservative) {
-          const base = [
-            'Full Body Strength',
-            'Cardio Base',
-            'Mobility + Core',
-            'Full Body Conditioning',
-            'Cardio Base',
-          ];
-          return base.take(sessionCount).toList(growable: false);
-        }
-        switch (sessionCount) {
-          case 1:
-            return ['General Fitness Full Body'];
-          case 2:
-            return ['General Fitness Full Body', 'Cardio Base'];
-          case 3:
-            return ['Full Body Strength', 'Cardio Base', 'Mobility + Core'];
-          case 4:
-            return [
-              'Full Body Strength',
-              'Cardio Intervals',
-              'Mobility + Core',
-              'Mixed Conditioning',
-            ];
-          default:
-            return [
-              'Upper Body Strength',
-              'Lower Body Strength',
-              'Cardio Base',
-              'Mobility + Core',
-              'Mixed Conditioning',
-            ];
-        }
-
       case 'Start Running':
-        if (!_hasRunningLocation(locations)) {
-          const fallback = [
-            'Home Cardio Base',
-            'Runner Strength',
-            'Mobility + Core',
-            'Home Cardio Base',
-          ];
-          return fallback.take(sessionCount).toList(growable: false);
-        }
-        if (conservative) {
-          const foundation = [
-            'Run-Walk Easy',
-            'Runner Strength',
-            'Easy Run',
-            'Long Easy Run',
-          ];
-          return foundation.take(sessionCount).toList(growable: false);
-        }
-        switch (sessionCount) {
-          case 1:
-            return ['Run-Walk Easy'];
-          case 2:
-            return ['Easy Run', 'Long Easy Run'];
-          case 3:
-            return ['Easy Run', 'Runner Strength', 'Long Easy Run'];
-          default:
-            return ['Easy Run', 'Runner Strength', 'Easy Run', 'Long Easy Run'];
-        }
-
+        return _runningTitles(
+          performance: false,
+          conservative: conservative,
+          count: sessionCount,
+          hasRunLocation: _hasRunningLocation(locations),
+        );
       case 'Improve Running Performance':
-        if (!_hasRunningLocation(locations)) {
-          return [
-            'Home Cardio Base',
-            'Runner Strength',
-            'Cardio Intervals',
-            'Mobility + Core',
-            'Home Cardio Base',
-            'Runner Strength',
-          ].take(sessionCount).toList(growable: false);
-        }
-        if (fitnessLevel == 'Low') {
-          return [
-            'Easy Run',
-            'Runner Strength',
-            'Tempo Run',
-            'Long Run',
-          ].take(sessionCount).toList(growable: false);
-        }
-        switch (sessionCount) {
-          case 1:
-            return ['Quality Run'];
-          case 2:
-            return ['Intervals', 'Long Run'];
-          case 3:
-            return ['Easy Run', 'Tempo Run', 'Long Run'];
-          case 4:
-            return ['Easy Run', 'Intervals', 'Tempo Run', 'Long Run'];
-          case 5:
-            return ['Recovery Run', 'Intervals', 'Easy Run', 'Tempo Run', 'Long Run'];
-          default:
-            return [
+        return _runningTitles(
+          performance: true,
+          conservative: conservative,
+          count: sessionCount,
+          hasRunLocation: _hasRunningLocation(locations),
+        );
+      case 'Lose Body Fat':
+        return _fill(
+          conservative
+              ? const [
+                  'Full Body Strength',
+                  'Cardio Base',
+                  'Full Body Conditioning',
+                  'Mobility + Core',
+                  'Cardio Base',
+                ]
+              : const [
+                  'Upper Body Strength',
+                  'Lower Body Strength',
+                  'Cardio Intervals',
+                  'Full Body Conditioning',
+                  'Cardio Base',
+                ],
+          sessionCount,
+          'Cardio Base',
+        );
+      case 'Improve General Fitness':
+      default:
+        return _fill(
+          conservative
+              ? const [
+                  'Full Body Strength',
+                  'Cardio Base',
+                  'Mobility + Core',
+                  'Full Body Conditioning',
+                ]
+              : const [
+                  'Upper Body Strength',
+                  'Lower Body Strength',
+                  'Cardio Base',
+                  'Mobility + Core',
+                  'Mixed Conditioning',
+                ],
+          sessionCount,
+          'Cardio Base',
+        );
+    }
+  }
+
+  static List<String> _runningTitles({
+    required bool performance,
+    required bool conservative,
+    required int count,
+    required bool hasRunLocation,
+  }) {
+    if (!hasRunLocation) {
+      return _fill(
+        const [
+          'Home Cardio Base',
+          'Runner Strength',
+          'Mobility + Core',
+          'Home Cardio Base',
+        ],
+        count,
+        'Home Cardio Base',
+      );
+    }
+    if (!performance) {
+      return _fill(
+        conservative
+            ? const [
+                'Run-Walk Easy',
+                'Runner Strength',
+                'Easy Run',
+                'Long Easy Run',
+              ]
+            : const ['Easy Run', 'Runner Strength', 'Easy Run', 'Long Easy Run'],
+        count,
+        'Easy Run',
+      );
+    }
+    return _fill(
+      conservative
+          ? const ['Easy Run', 'Runner Strength', 'Tempo Run', 'Long Run']
+          : const [
               'Recovery Run',
               'Intervals',
               'Easy Run',
               'Runner Strength',
               'Tempo Run',
               'Long Run',
-            ];
-        }
-
-      default:
-        return ['General Fitness Full Body'];
-    }
+            ],
+      count,
+      'Easy Run',
+    );
   }
 
-  static List<String> _strengthTitles(String experience, int sessionCount) {
-    if (sessionCount == 1) return ['Full Body'];
-    if (sessionCount == 2) return ['Full Body A', 'Full Body B'];
-    if (sessionCount == 3) {
-      if (experience == 'Advanced') {
-        return ['Upper Body', 'Lower Body', 'Full Body'];
+  static List<String> _strengthTitles(String experience, int count) {
+    final base = count <= 2
+        ? const ['Full Body A', 'Full Body B']
+        : count == 3
+            ? const ['Full Body A', 'Full Body B', 'Full Body C']
+            : count == 4
+                ? const [
+                    'Upper Body A',
+                    'Lower Body A',
+                    'Upper Body B',
+                    'Lower Body B',
+                  ]
+                : const [
+                    'Push',
+                    'Pull',
+                    'Lower Body A',
+                    'Upper Body',
+                    'Lower Body B',
+                  ];
+    return _fill(
+      base,
+      count,
+      experience == 'Advanced' ? 'Full Body Strength' : 'Full Body C',
+    );
+  }
+
+  static List<String> _protectConcurrentRecovery(List<String> titles) {
+    if (titles.length < 3) return titles;
+    final remaining = List<String>.from(titles);
+    final output = <String>[];
+    while (remaining.isNotEmpty) {
+      var pick = 0;
+      if (output.isNotEmpty && _isLowerHard(output.last)) {
+        final safe = remaining.indexWhere((item) => !_isLowerHard(item));
+        if (safe >= 0) pick = safe;
       }
-      return ['Full Body A', 'Full Body B', 'Full Body C'];
+      output.add(remaining.removeAt(pick));
     }
-    if (sessionCount == 4) {
-      return ['Upper Body A', 'Lower Body A', 'Upper Body B', 'Lower Body B'];
-    }
-    return ['Push', 'Pull', 'Lower Body A', 'Upper Body', 'Lower Body B'];
+    return output;
   }
 
-  static bool _hasRunningLocation(Set<String> locations) {
-    return locations.contains('Outside') || locations.contains('Gym');
+  static bool _isLowerHard(String title) {
+    final value = title.toLowerCase();
+    return value.contains('lower') ||
+        value.contains('interval') ||
+        value.contains('quality run') ||
+        value.contains('tempo') ||
+        value.contains('long run');
+  }
+
+  static List<String> _spreadTrainingDays(List<String> available, int count) {
+    if (count >= available.length) return List<String>.from(available);
+    if (count <= 1) return [available.first];
+    final output = <String>[];
+    for (var i = 0; i < count; i++) {
+      final position = i * (available.length - 1) / (count - 1);
+      final day = available[position.round()];
+      if (!output.contains(day)) output.add(day);
+    }
+    for (final day in available) {
+      if (output.length >= count) break;
+      if (!output.contains(day)) output.add(day);
+    }
+    output.sort((a, b) => _dayIndex(a).compareTo(_dayIndex(b)));
+    return output;
   }
 
   static String _locationForSession(
@@ -492,249 +548,134 @@ class ProgrammeEngine {
     required String gymAccess,
     required int sessionIndex,
   }) {
-    final runSession = _isRunningSession(title);
-    final cardioSession = title.contains('Cardio') ||
-        title.contains('Conditioning') ||
-        title == 'Mixed Conditioning';
-    final strengthSession = title == 'Runner Strength' ||
-        title.contains('Strength') ||
-        title.contains('Body') ||
-        title.contains('Upper') ||
-        title.contains('Lower') ||
-        title == 'Push' ||
-        title == 'Pull';
-
-    if (runSession) {
+    if (_isRunningSession(title)) {
       if (locations.contains('Outside')) return 'Outside';
       if (locations.contains('Gym')) return 'Gym';
       return 'Home';
     }
+    final cardio = title.contains('Cardio') || title.contains('Conditioning');
+    if (cardio && locations.contains('Outside')) return 'Outside';
 
-    if (title == 'Mobility + Core') {
-      if (locations.contains('Home')) return 'Home';
-      if (locations.contains('Gym')) return 'Gym';
-      if (locations.contains('Outside')) return 'Outside';
+    // A user who explicitly saved both an equipped home setup and a gym should
+    // actually see both environments represented in a strength programme.
+    if (locations.contains('Gym') &&
+        locations.contains('Home') &&
+        _homeStrengthScore(homeEquipment) > 0) {
+      return sessionIndex.isEven ? 'Gym' : 'Home';
     }
-
-    if (cardioSession) {
-      if (locations.contains('Outside')) return 'Outside';
-      if (locations.contains('Home') && homeEquipment.contains('Cardio machine')) {
-        return 'Home';
-      }
-      if (locations.contains('Gym')) return 'Gym';
-      if (locations.contains('Home')) return 'Home';
-    }
-
-    if (strengthSession) {
-      final homeCapable = _homeStrengthScore(homeEquipment) >= 2;
-      final hasHome = locations.contains('Home');
-      final hasGym = locations.contains('Gym') && gymAccess.trim().isNotEmpty;
-      if (hasHome && hasGym && homeCapable) {
-        // When the profile supports both, alternate rather than ignoring one of
-        // the locations the user explicitly selected.
-        return sessionIndex.isEven ? 'Gym' : 'Home';
-      }
-      if (hasGym) return 'Gym';
-      if (hasHome) return 'Home';
-      if (locations.contains('Outside')) return 'Outside';
-    }
-
     if (locations.contains('Gym')) return 'Gym';
     if (locations.contains('Home')) return 'Home';
-    if (locations.contains('Outside')) return 'Outside';
-    return 'Flexible';
+    return locations.first;
   }
+
+  static bool _isRunningSession(String title) => const {
+        'Run-Walk Easy',
+        'Easy Run',
+        'Long Easy Run',
+        'Recovery Run',
+        'Intervals',
+        'Tempo Run',
+        'Long Run',
+        'Quality Run',
+      }.contains(title);
+
+  static String _focus(String title, List<String> goals) {
+    if (_isRunningSession(title)) return 'Running development';
+    if (title.contains('Cardio')) return 'Cardiorespiratory fitness';
+    if (title.contains('Mobility')) return 'Mobility and trunk control';
+    if (title.contains('Upper')) return 'Upper-body strength and muscle';
+    if (title.contains('Lower')) return 'Lower-body strength and muscle';
+    if (title.contains('Runner Strength')) return 'Running support strength';
+    return _wantsStrength(goals) ? 'Strength and muscle' : 'Balanced conditioning';
+  }
+
+  static String _intensity(
+    String title, {
+    required String experience,
+    required String fitnessLevel,
+  }) {
+    if (title.contains('Recovery') ||
+        title.contains('Mobility') ||
+        title.contains('Easy')) {
+      return 'Easy to moderate';
+    }
+    if (title.contains('Intervals') ||
+        title.contains('Quality') ||
+        title.contains('Tempo')) {
+      return fitnessLevel == 'Low' ? 'Moderate' : 'Hard';
+    }
+    return experience == 'Beginner' ? 'Moderate' : 'Moderate to hard';
+  }
+
+  static String _note(
+    String title, {
+    required String experience,
+    required String sessionLength,
+    required bool hasLimitation,
+    required List<String> goals,
+  }) {
+    final multi = goals.length > 1
+        ? ' Part of a concurrent ${goals.join(' + ')} plan.'
+        : '';
+    final safety = hasLimitation
+        ? ' LeanIt safety substitutions remain active for this session.'
+        : '';
+    return '$experience session fitted to about $sessionLength.$multi$safety';
+  }
+
+  static String _singleGoalStructure(String goal, String experience) {
+    if (goal.contains('Running')) return '$experience running programme';
+    if (goal == 'Build Muscle' || goal == 'Gain Weight') {
+      return '$experience progressive resistance programme';
+    }
+    if (goal == 'Lose Body Fat') {
+      return '$experience strength + conditioning programme';
+    }
+    return '$experience balanced fitness programme';
+  }
+
+  static bool _wantsStrength(List<String> goals) => goals.any(
+        (goal) =>
+            goal == 'Build Muscle' ||
+            goal == 'Gain Weight' ||
+            goal == 'Improve General Fitness',
+      );
+
+  static bool _wantsRunning(List<String> goals) => goals.any(
+        (goal) =>
+            goal == 'Start Running' || goal == 'Improve Running Performance',
+      );
+
+  static bool _hasRunningLocation(Set<String> locations) =>
+      locations.contains('Outside') || locations.contains('Gym');
 
   static int _homeStrengthScore(Set<String> equipment) {
     var score = 0;
-    if (equipment.contains('Dumbbells')) score += 2;
-    if (equipment.contains('Kettlebell')) score += 2;
-    if (equipment.contains('Barbell + plates')) score += 3;
-    if (equipment.contains('Resistance bands')) score += 1;
-    if (equipment.contains('Bench')) score += 1;
-    if (equipment.contains('Pull-up bar')) score += 1;
+    for (final item in equipment) {
+      final value = item.toLowerCase();
+      if (value.contains('dumbbell') ||
+          value.contains('barbell') ||
+          value.contains('kettlebell') ||
+          value.contains('band') ||
+          value.contains('pull-up')) {
+        score++;
+      }
+    }
     return score;
   }
 
-  static bool _isRunningSession(String title) {
-    const runningTitles = {
-      'Run-Walk Easy',
-      'Easy Run',
-      'Long Easy Run',
-      'Recovery Run',
-      'Intervals',
-      'Tempo Run',
-      'Long Run',
-      'Quality Run',
-    };
-    return runningTitles.contains(title);
+  static List<String> _fill(List<String> base, int count, String fallback) {
+    final output = <String>[];
+    for (final item in base) {
+      if (output.length >= count) break;
+      output.add(item);
+    }
+    while (output.length < count) output.add(fallback);
+    return output;
   }
 
-  static String _focusForSession(String title, String goal) {
-    if (_isRunningSession(title)) {
-      if (title.contains('Long')) return 'Aerobic endurance';
-      if (title == 'Intervals' || title == 'Quality Run') return 'Speed + aerobic power';
-      if (title == 'Tempo Run') return 'Sustained running strength';
-      if (title == 'Recovery Run') return 'Easy aerobic recovery';
-      return 'Aerobic foundation';
-    }
-    if (title == 'Mobility + Core') return 'Mobility + trunk control';
-    if (title.contains('Cardio')) return 'Cardiovascular fitness';
-    if (title.contains('Conditioning')) return 'Strength endurance + conditioning';
-    if (title == 'Push') return 'Chest, shoulders + triceps';
-    if (title == 'Pull') return 'Back + biceps';
-    if (title.contains('Upper')) return 'Upper-body strength';
-    if (title.contains('Lower')) return 'Lower-body strength';
-    if (title == 'Runner Strength') return 'Running-support strength';
-    if (goal == 'Build Muscle' || goal == 'Gain Weight') return 'Whole-body muscle development';
-    return 'Whole-body strength';
-  }
-
-  static String _intensityForSession({
-    required String title,
-    required String goal,
-    required String experience,
-    required String fitnessLevel,
-  }) {
-    if (title == 'Mobility + Core' || title == 'Recovery Run' || title == 'Run-Walk Easy') {
-      return 'Easy';
-    }
-    if (title == 'Intervals' || title == 'Cardio Intervals' || title == 'Quality Run') {
-      return fitnessLevel == 'Low' ? 'Moderate' : 'Hard';
-    }
-    if (title == 'Tempo Run' || title.contains('Conditioning')) {
-      return experience == 'Beginner' || fitnessLevel == 'Low' ? 'Moderate' : 'Moderate–Hard';
-    }
-    if (title.contains('Long')) return 'Easy–Moderate';
-    if (goal == 'Build Muscle' || goal == 'Gain Weight') {
-      return experience == 'Beginner' ? 'Moderate' : 'Moderate–Hard';
-    }
-    return 'Moderate';
-  }
-
-  static String _sessionNote({
-    required String title,
-    required String location,
-    required String goal,
-    required String experience,
-    required String fitnessLevel,
-    required String activityLevel,
-    required String sessionLength,
-    required Set<String> homeEquipment,
-    required bool hasLimitation,
-  }) {
-    final reasons = <String>[];
-    if (title == 'Mobility + Core') {
-      reasons.add('balances harder training with mobility and trunk work');
-    } else if (_isRunningSession(title)) {
-      reasons.add('matches your $goal goal without stacking every run as a hard session');
-    } else if (title.contains('Strength') ||
-        title.contains('Body') ||
-        title == 'Push' ||
-        title == 'Pull') {
-      reasons.add('supports your $goal goal with repeatable resistance training');
-    } else if (title.contains('Cardio') || title.contains('Conditioning')) {
-      reasons.add('adds cardiovascular work alongside the rest of your week');
-    }
-
-    if (experience == 'Beginner' || fitnessLevel == 'Low') {
-      reasons.add('keeps the starting structure simple for your current level');
-    }
-    if (activityLevel == 'Mostly sedentary') {
-      reasons.add('avoids making every available day a demanding session');
-    }
-    if (location == 'Home' && _homeStrengthScore(homeEquipment) >= 2) {
-      reasons.add('uses the resistance equipment you have at home');
-    } else if (location == 'Gym') {
-      reasons.add('uses your gym access for broader loading options');
-    } else if (location == 'Outside') {
-      reasons.add('uses your outdoor access for cardio or running work');
-    }
-    if (sessionLength == '20 min' || sessionLength == '30 min') {
-      reasons.add('fits the shorter session window you selected');
-    }
-    if (hasLimitation) {
-      reasons.add('will still pass through LeanIt safety substitutions before training');
-    }
-
-    if (reasons.isEmpty) return 'Chosen from your training profile.';
-    final sentence = reasons.join('; ');
-    return '${sentence[0].toUpperCase()}${sentence.substring(1)}.';
-  }
-
-  static String _structureName(String goal, String experience, int sessionCount) {
-    switch (goal) {
-      case 'Build Muscle':
-        if (sessionCount <= 3) return 'Full-body muscle-building structure';
-        if (sessionCount == 4) return 'Upper / lower muscle-building structure';
-        return '5-session muscle-building split';
-      case 'Gain Weight':
-        if (sessionCount <= 3) return 'Full-body resistance-training structure';
-        if (sessionCount == 4) return 'Upper / lower resistance-training structure';
-        return '5-session resistance-training split';
-      case 'Lose Body Fat':
-        return 'Strength + conditioning structure';
-      case 'Improve General Fitness':
-        return 'Balanced strength, cardio and mobility structure';
-      case 'Start Running':
-        return 'Progressive running foundation';
-      case 'Improve Running Performance':
-        return 'Performance running week';
-      default:
-        return '$sessionCount-session programme';
-    }
-  }
-
-  static String _explanation({
-    required String goal,
-    required String experience,
-    required String fitnessLevel,
-    required String activityLevel,
-    required int trainingDays,
-    required int sessionCount,
-    required String sessionLength,
-    required String trainingTime,
-    required Set<String> locations,
-    required Set<String> homeEquipment,
-    required bool hasLimitation,
-    required Set<String> affectedAreas,
-  }) {
-    final base =
-        'LeanIt used your $goal goal, $experience experience, $fitnessLevel fitness level, '
-        '$activityLevel activity baseline, $trainingDays available day(s), $sessionLength session window '
-        'and $trainingTime training preference. It selected $sessionCount session(s) and spread them across your available days.';
-
-    final equipmentText = locations.contains('Home')
-        ? _homeStrengthScore(homeEquipment) >= 2
-            ? ' Your home-equipment choices are strong enough for meaningful resistance sessions, so Home can be used when it fits the week.'
-            : ' Your Home option has limited resistance equipment, so LeanIt keeps home strength work simpler and prefers gym loading when Gym is also available.'
-        : '';
-
-    final limitationText = hasLimitation
-        ? ' Your saved limitation settings do not diagnose or redesign rehabilitation; each generated workout is still passed through the safety engine before training${affectedAreas.isEmpty ? '' : ' for the areas you selected'}.'
-        : '';
-
-    switch (goal) {
-      case 'Build Muscle':
-        return '$base Sessions prioritise repeatable resistance training and enough separation between major muscle groups.$equipmentText$limitationText';
-      case 'Gain Weight':
-        return '$base Resistance training supports muscle gain, while actual weight gain also depends on adequate food intake and recovery.$equipmentText$limitationText';
-      case 'Lose Body Fat':
-        return '$base The week combines resistance training and conditioning, with harder intervals reserved for profiles that are ready for them. Body-fat change also depends on overall nutrition and daily activity.$equipmentText$limitationText';
-      case 'Improve General Fitness':
-        return '$base The week balances strength, cardiovascular fitness, core work and mobility instead of repeating one training type.$equipmentText$limitationText';
-      case 'Start Running':
-        if (!_hasRunningLocation(locations)) {
-          return '$base You did not select Outside or Gym, so LeanIt uses home cardio, runner strength and mobility preparation. Add Outside or Gym/treadmill access for running-specific sessions.$limitationText';
-        }
-        return '$base Running work starts with an aerobic foundation and separates harder work from recovery.$limitationText';
-      case 'Improve Running Performance':
-        if (!_hasRunningLocation(locations)) {
-          return '$base You did not select Outside or Gym, so running-specific sessions cannot be scheduled. LeanIt uses home conditioning and runner-strength preparation instead.$limitationText';
-        }
-        return '$base The week separates easy running, quality work, supporting strength and the long run so demanding sessions are not all stacked together.$limitationText';
-      default:
-        return '$base$equipmentText$limitationText';
-    }
+  static int _dayIndex(String day) {
+    final index = _weekOrder.indexOf(day);
+    return index < 0 ? _weekOrder.length : index;
   }
 }

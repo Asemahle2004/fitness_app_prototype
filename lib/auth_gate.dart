@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'lean_eat_theme.dart';
+import 'leanit_onboarding_flow.dart';
 import 'profile_service.dart';
 
 class LeanEatAuthGate extends StatefulWidget {
@@ -69,7 +70,7 @@ class _LeanEatAuthGateState extends State<LeanEatAuthGate> {
                         const Icon(Icons.cloud_off_outlined, size: 42),
                         const SizedBox(height: 12),
                         const Text(
-                          'LeanEat could not load your saved profile.',
+                          'LeanIt could not load your saved profile.',
                           textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 14),
@@ -89,7 +90,10 @@ class _LeanEatAuthGateState extends State<LeanEatAuthGate> {
             if (completed && profile != null) {
               return widget.completedHomeBuilder(profile);
             }
-            return widget.onboardingHome;
+            // New/incomplete accounts use the consolidated multi-goal flow.
+            // The legacy onboarding widget remains in the constructor only for
+            // source compatibility with older app shells.
+            return const LeanItOnboardingFlow();
           },
         );
       },
@@ -224,7 +228,7 @@ class _LeanEatAuthScreenState extends State<LeanEatAuthScreen> {
                         const SizedBox(height: 10),
                         TextButton(
                           onPressed: _busy ? null : () => setState(() => _signUp = !_signUp),
-                          child: Text(_signUp ? 'Already have an account? Sign in' : 'New to LeanEat? Create an account'),
+                          child: Text(_signUp ? 'Already have an account? Sign in' : 'New to LeanIt? Create an account'),
                         ),
                         if (!_signUp)
                           TextButton(
