@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('ExerciseCuration', () {
-    test('keeps programme core movements', () {
+    test('keeps original programme core movements', () {
       expect(
         ExerciseCuration.isApprovedCanonicalName('Barbell Bench Press'),
         isTrue,
@@ -21,17 +21,34 @@ void main() {
       expect(ExerciseCuration.isApprovedCanonicalName('Push-Up'), isTrue);
     });
 
+    test('adds researched muscle cardio mobility and running movements', () {
+      expect(ExerciseCuration.isApprovedCanonicalName('Chin Tuck'), isTrue);
+      expect(
+        ExerciseCuration.isApprovedCanonicalName('Bayesian Cable Curl'),
+        isTrue,
+      );
+      expect(
+        ExerciseCuration.isApprovedCanonicalName('Copenhagen Side Plank'),
+        isTrue,
+      );
+      expect(
+        ExerciseCuration.isApprovedCanonicalName('Wall Tibialis Raise'),
+        isTrue,
+      );
+      expect(ExerciseCuration.isApprovedCanonicalName('A-Skip'), isTrue);
+      expect(
+        ExerciseCuration.isApprovedCanonicalName("World's Greatest Stretch"),
+        isTrue,
+      );
+    });
+
     test('does not approve arbitrary imported catalogue exercises', () {
       expect(
-        ExerciseCuration.isApprovedCanonicalName('90/90 Hamstring'),
+        ExerciseCuration.isApprovedCanonicalName('Random Unreviewed Exercise'),
         isFalse,
       );
       expect(
-        ExerciseCuration.isApprovedCanonicalName('Advanced Kettlebell Windmill'),
-        isFalse,
-      );
-      expect(
-        ExerciseCuration.isApprovedCanonicalName('Alternate Heel Touchers'),
+        ExerciseCuration.isApprovedCanonicalName('Unsafe Mystery Movement'),
         isFalse,
       );
     });
@@ -48,14 +65,16 @@ void main() {
         isTrue,
       );
       expect(
-        ExerciseCuration.isExplicitApprovedSourceName('Wide-Grip Decline Barbell Bench Press'),
+        ExerciseCuration.isExplicitApprovedSourceName(
+          'Wide-Grip Decline Barbell Bench Press',
+        ),
         isFalse,
       );
     });
 
-    test('approved catalogue remains deliberately compact', () {
-      expect(ExerciseCuration.approvedCanonicalNames.length, lessThan(100));
-      expect(ExerciseCuration.approvedCanonicalNames.length, greaterThan(50));
+    test('approved catalogue is comprehensive and unique', () {
+      expect(ExerciseCuration.approvedCanonicalNames.length, greaterThan(400));
+      expect(ExerciseCuration.approvedCanonicalNames.length, lessThan(600));
       expect(
         ExerciseCuration.approvedCanonicalNames.toSet().length,
         ExerciseCuration.approvedCanonicalNames.length,
