@@ -41,3 +41,14 @@ jobs:
           path: build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
           retention-days: 7
+
+      - name: Compile Android profile APK
+        run: flutter build apk --profile
+
+      - name: Upload Android profile APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: leanit-profile-apk
+          path: build/app/outputs/flutter-apk/app-profile.apk
+          if-no-files-found: error
+          retention-days: 7
