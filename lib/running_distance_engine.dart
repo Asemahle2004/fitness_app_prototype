@@ -213,15 +213,15 @@ class RunningDistanceEngine {
   const RunningDistanceEngine._();
 
   static RunningTrainingPlan generate(RunningPlanConfig raw) {
-    final days = raw.daysPerWeek.clamp(2, 7);
+    final days = raw.daysPerWeek.clamp(2, 7).toInt();
     final minimumWeeks = raw.goal.minimumRecommendedWeeks;
-    final weeks = raw.totalWeeks.clamp(minimumWeeks, 32);
+    final weeks = raw.totalWeeks.clamp(minimumWeeks, 32).toInt();
     final config = RunningPlanConfig(
       goal: raw.goal,
       level: raw.level,
       daysPerWeek: days,
       totalWeeks: weeks,
-      recentWeeklyKm: math.max(0, raw.recentWeeklyKm),
+      recentWeeklyKm: math.max(0.0, raw.recentWeeklyKm),
       benchmarkDistanceMeters: raw.benchmarkDistanceMeters,
       benchmarkSeconds: raw.benchmarkSeconds,
       targetDate: raw.targetDate,
@@ -394,7 +394,7 @@ class RunningDistanceEngine {
   }) {
     final discipline = config.goal.discipline;
     final scale = taper ? 0.62 : (recovery ? 0.78 : 1.0);
-    final targetKm = math.max(6, weeklyKm * scale);
+    final targetKm = math.max(6.0, weeklyKm * scale);
     final longFraction = discipline == RunningDiscipline.longEndurance ? 0.30 : 0.24;
     final longKm = math.max(3.0, targetKm * longFraction);
     final qualityKm = math.max(2.0, targetKm * 0.18);
@@ -473,8 +473,10 @@ class RunningDistanceEngine {
     double? distanceMeters,
     double? seconds,
   }) {
-    if (distanceMeters == null || seconds == null ||
-        distanceMeters < 800 || seconds <= 0) {
+    if (distanceMeters == null ||
+        seconds == null ||
+        distanceMeters < 800 ||
+        seconds <= 0) {
       return null;
     }
     final benchmarkPace = (seconds / (distanceMeters / 1000)).round();
@@ -550,7 +552,9 @@ class RunningDistanceEngine {
       paceMultiplier: 1 + penalty,
       headline: penalty >= 0.06
           ? 'Run by effort today, not by the original pace number'
-          : (penalty > 0 ? 'Use a small heat-adjusted pace allowance' : 'No heat adjustment needed'),
+          : (penalty > 0
+              ? 'Use a small heat-adjusted pace allowance'
+              : 'No heat adjustment needed'),
       notes: <String>[
         if (penalty > 0)
           'The suggested pace allowance is about ${(penalty * 100).round()}% slower for the same training purpose.',
@@ -567,7 +571,7 @@ class RunningDistanceEngine {
     bool highStress = false,
     bool feelsIll = false,
   }) {
-    final score = readinessScore.clamp(0, 100);
+    final score = readinessScore.clamp(0, 100).toInt();
     if (feelsIll || score < 35) {
       return const RunningDayAdjustment(
         replaceWithRecovery: true,
@@ -601,7 +605,9 @@ class RunningDistanceEngine {
       replaceWithRecovery: false,
       volumeMultiplier: score < 75 ? 0.90 : 1,
       allowHardWork: true,
-      headline: score < 75 ? 'Train normally, but keep margin' : 'Normal training is available',
+      headline: score < 75
+          ? 'Train normally, but keep margin'
+          : 'Normal training is available',
       reasons: <String>['Readiness is $score/100 with no major recovery override.'],
     );
   }
@@ -610,7 +616,8 @@ class RunningDistanceEngine {
     final steps = <GuidedRunStep>[
       const GuidedRunStep(
         label: 'Warm up',
-        instruction: 'Build gradually. Do mobility and easy movement before the first work repetition.',
+        instruction:
+            'Build gradually. Do mobility and easy movement before the first work repetition.',
         durationSeconds: 480,
         type: GuidedRunPhaseType.warmUp,
       ),
@@ -679,7 +686,8 @@ class RunningDistanceEngine {
         level.toLowerCase().contains('experienced');
     return switch (goal) {
       RunningGoalDistance.m800 => experienced ? 55 : 35,
-      RunningGoalDistance.m1500 || RunningGoalDistance.mile => experienced ? 70 : 45,
+      RunningGoalDistance.m1500 || RunningGoalDistance.mile =>
+        experienced ? 70 : 45,
       RunningGoalDistance.k3 || RunningGoalDistance.k5 => experienced ? 80 : 50,
       RunningGoalDistance.k10 => experienced ? 95 : 60,
       RunningGoalDistance.halfMarathon => experienced ? 110 : 70,
