@@ -339,6 +339,7 @@ class _LeanItOnboardingFlowState extends State<LeanItOnboardingFlow> {
                       _notes.clear();
                     }
                   }),
+                ),
                 if (_limited) ...[
                   const Text('Affected area', style: TextStyle(fontWeight: FontWeight.w800)),
                   const SizedBox(height: 8),
