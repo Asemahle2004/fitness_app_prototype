@@ -64,7 +64,7 @@ class CustomTrainingBlock {
     return CustomTrainingBlock(
       id: json['id']?.toString() ?? 'block_${DateTime.now().microsecondsSinceEpoch}',
       name: json['name']?.toString() ?? 'Custom Block',
-      weeks: ((json['weeks'] as num?)?.toInt() ?? 4).clamp(4, 12),
+      weeks: ((json['weeks'] as num?)?.toInt() ?? 4).clamp(4, 12).toInt(),
       goal: json['goal']?.toString() ?? 'General Fitness',
       sessions: List<PlannedSession>.unmodifiable(sessions),
       allowLeanItAdaptation: json['allow_leanit_adaptation'] as bool? ?? true,
@@ -129,7 +129,7 @@ class CustomTrainingBlockStore {
     final block = CustomTrainingBlock(
       id: 'block_${now.microsecondsSinceEpoch}',
       name: name.trim().isEmpty ? 'Custom Training Block' : name.trim(),
-      weeks: weeks.clamp(4, 12),
+      weeks: weeks.clamp(4, 12).toInt(),
       goal: goal.trim().isEmpty ? 'General Fitness' : goal.trim(),
       sessions: List<PlannedSession>.unmodifiable(sessions),
       allowLeanItAdaptation: allowLeanItAdaptation,
