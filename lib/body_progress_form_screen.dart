@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'body_progress_store.dart';
+import 'unit_display.dart';
 
 class BodyProgressFormScreen extends StatefulWidget {
   const BodyProgressFormScreen({super.key});
@@ -35,23 +36,54 @@ class _BodyProgressFormScreenState extends State<BodyProgressFormScreen> {
     super.dispose();
   }
 
-  double? _number(TextEditingController controller) {
+  double? _entered(TextEditingController controller) {
     final raw = controller.text.trim().replaceAll(',', '.');
     if (raw.isEmpty) return null;
     return double.tryParse(raw);
   }
 
-  String? _validateNumber(
+  double? _weightKg(TextEditingController controller) {
+    final value = _entered(controller);
+    return value == null ? null : UnitDisplay.canonicalWeight(value);
+  }
+
+  double? _lengthCm(TextEditingController controller) {
+    final value = _entered(controller);
+    return value == null ? null : UnitDisplay.canonicalLengthCm(value);
+  }
+
+  String? _validateCanonical(
     String? value, {
-    required double min,
-    required double max,
-    required String unit,
+    required double minCanonical,
+    required double maxCanonical,
+    required bool weight,
   }) {
+    final raw = value?.trim().replaceAll(',', '.') ?? '';
+    if (raw.isEmpty) return null;
+    final entered = double.tryParse(raw);
+    if (entered == null) return 'Enter a valid number';
+    final canonical = weight
+        ? UnitDisplay.canonicalWeight(entered)
+        : UnitDisplay.canonicalLengthCm(entered);
+    if (canonical < minCanonical || canonical > maxCanonical) {
+      final minDisplay = weight
+          ? UnitDisplay.displayWeightValue(minCanonical)
+          : UnitDisplay.displayLengthValue(minCanonical);
+      final maxDisplay = weight
+          ? UnitDisplay.displayWeightValue(maxCanonical)
+          : UnitDisplay.displayLengthValue(maxCanonical);
+      final unit = weight ? UnitDisplay.weightUnit : UnitDisplay.lengthUnit;
+      return 'Use ${minDisplay.toStringAsFixed(0)}–${maxDisplay.toStringAsFixed(0)} $unit';
+    }
+    return null;
+  }
+
+  String? _validatePercent(String? value) {
     final raw = value?.trim().replaceAll(',', '.') ?? '';
     if (raw.isEmpty) return null;
     final parsed = double.tryParse(raw);
     if (parsed == null) return 'Enter a valid number';
-    if (parsed < min || parsed > max) return 'Use $min–$max $unit';
+    if (parsed < 2 || parsed > 80) return 'Use 2–80 %';
     return null;
   }
 
@@ -76,13 +108,13 @@ class _BodyProgressFormScreenState extends State<BodyProgressFormScreen> {
         DateTime.now().hour,
         DateTime.now().minute,
       ),
-      weightKg: _number(_weight),
-      bodyFatPercent: _number(_bodyFat),
-      chestCm: _number(_chest),
-      waistCm: _number(_waist),
-      hipsCm: _number(_hips),
-      armCm: _number(_arm),
-      thighCm: _number(_thigh),
+      weightKg: _weightKg(_weight),
+      bodyFatPercent: _entered(_bodyFat),
+      chestCm: _lengthCm(_chest),
+      waistCm: _lengthCm(_waist),
+      hipsCm: _lengthCm(_hips),
+      armCm: _lengthCm(_arm),
+      thighCm: _lengthCm(_thigh),
       notes: _notes.text,
     );
     if (!entry.hasMeasurements) {
@@ -122,9 +154,9 @@ class _BodyProgressFormScreenState extends State<BodyProgressFormScreen> {
               ),
             ),
             const SizedBox(height: 8),
-            const Text(
-              'LeanIt can follow body changes alongside training performance. You do not need to complete every field.',
-              style: TextStyle(color: Color(0xFF627D98), height: 1.4),
+            Text(
+              'LeanIt displays measurements in your selected units and stores them canonically so changing units later never changes your history.',
+              style: const TextStyle(color: Color(0xFF627D98), height: 1.4),
             ),
             const SizedBox(height: 20),
             Card(
@@ -149,24 +181,19 @@ class _BodyProgressFormScreenState extends State<BodyProgressFormScreen> {
             _NumberField(
               controller: _weight,
               label: 'Body weight',
-              suffix: 'kg',
-              validator: (value) => _validateNumber(
+              suffix: UnitDisplay.weightUnit,
+              validator: (value) => _validateCanonical(
                 value,
-                min: 20,
-                max: 500,
-                unit: 'kg',
+                minCanonical: 20,
+                maxCanonical: 500,
+                weight: true,
               ),
             ),
             _NumberField(
               controller: _bodyFat,
               label: 'Body fat',
               suffix: '%',
-              validator: (value) => _validateNumber(
-                value,
-                min: 2,
-                max: 80,
-                unit: '%',
-              ),
+              validator: _validatePercent,
             ),
             const SizedBox(height: 10),
             const Text(
@@ -181,56 +208,56 @@ class _BodyProgressFormScreenState extends State<BodyProgressFormScreen> {
             _NumberField(
               controller: _chest,
               label: 'Chest',
-              suffix: 'cm',
-              validator: (value) => _validateNumber(
+              suffix: UnitDisplay.lengthUnit,
+              validator: (value) => _validateCanonical(
                 value,
-                min: 20,
-                max: 300,
-                unit: 'cm',
+                minCanonical: 20,
+                maxCanonical: 300,
+                weight: false,
               ),
             ),
             _NumberField(
               controller: _waist,
               label: 'Waist',
-              suffix: 'cm',
-              validator: (value) => _validateNumber(
+              suffix: UnitDisplay.lengthUnit,
+              validator: (value) => _validateCanonical(
                 value,
-                min: 20,
-                max: 300,
-                unit: 'cm',
+                minCanonical: 20,
+                maxCanonical: 300,
+                weight: false,
               ),
             ),
             _NumberField(
               controller: _hips,
               label: 'Hips',
-              suffix: 'cm',
-              validator: (value) => _validateNumber(
+              suffix: UnitDisplay.lengthUnit,
+              validator: (value) => _validateCanonical(
                 value,
-                min: 20,
-                max: 300,
-                unit: 'cm',
+                minCanonical: 20,
+                maxCanonical: 300,
+                weight: false,
               ),
             ),
             _NumberField(
               controller: _arm,
               label: 'Arm',
-              suffix: 'cm',
-              validator: (value) => _validateNumber(
+              suffix: UnitDisplay.lengthUnit,
+              validator: (value) => _validateCanonical(
                 value,
-                min: 10,
-                max: 150,
-                unit: 'cm',
+                minCanonical: 10,
+                maxCanonical: 150,
+                weight: false,
               ),
             ),
             _NumberField(
               controller: _thigh,
               label: 'Thigh',
-              suffix: 'cm',
-              validator: (value) => _validateNumber(
+              suffix: UnitDisplay.lengthUnit,
+              validator: (value) => _validateCanonical(
                 value,
-                min: 10,
-                max: 200,
-                unit: 'cm',
+                minCanonical: 10,
+                maxCanonical: 200,
+                weight: false,
               ),
             ),
             const SizedBox(height: 4),
