@@ -93,14 +93,15 @@ class CommunityChallengeEngine {
       case CommunityChallengeType.workoutsPerWeek:
         final start = _weekStart(reference);
         final end = start.add(const Duration(days: 7));
-        value = workouts
-                .where((item) =>
-                    !item.completedAt.isBefore(start) && item.completedAt.isBefore(end))
-                .length +
-            runs
-                .where((item) =>
-                    !item.startedAt.isBefore(start) && item.startedAt.isBefore(end))
-                .length;
+        final workoutCount = workouts
+            .where((item) =>
+                !item.completedAt.isBefore(start) && item.completedAt.isBefore(end))
+            .length;
+        final runCount = runs
+            .where((item) =>
+                !item.startedAt.isBefore(start) && item.startedAt.isBefore(end))
+            .length;
+        value = (workoutCount + runCount).toDouble();
         break;
       case CommunityChallengeType.runningDistanceMonth:
         value = runs
