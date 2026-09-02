@@ -346,6 +346,7 @@ class PeriodizationEngine {
         text.contains('high') ||
         text.contains('interval') ||
         text.contains('speed') ||
+        text.contains('strength') ||
         text.contains('intens');
   }
 
