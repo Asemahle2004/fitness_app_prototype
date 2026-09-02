@@ -1,3 +1,4 @@
+import 'exercise_intelligence_engine.dart';
 import 'workout_engine.dart';
 
 class TrainingEnvironmentSummary {
@@ -37,6 +38,17 @@ class TrainingEnvironmentSummary {
 class TrainingEnvironmentEngine {
   static const environments = <String>['Gym', 'Home', 'Outside'];
 
+  static const _dedicatedRunningTitles = <String>{
+    'Run-Walk Easy',
+    'Easy Run',
+    'Long Easy Run',
+    'Recovery Run',
+    'Intervals',
+    'Tempo Run',
+    'Long Run',
+    'Quality Run',
+  };
+
   static String normalise(String? value) {
     final text = (value ?? '').toLowerCase();
     if (text.contains('home')) return 'Home';
@@ -63,13 +75,29 @@ class TrainingEnvironmentEngine {
     Set<String>? todayHomeEquipment,
     String? gymAccess,
   }) {
-    return WorkoutEngine.generate(
+    final location = normalise(environment);
+    final homeEquipment = effectiveHomeEquipment(
+      savedEquipment: savedHomeEquipment,
+      todayOverride: todayHomeEquipment,
+    );
+
+    // Running sessions keep their distance/time blocks. Strength, conditioning,
+    // mobility and runner-strength sessions now select from LeanIt's full master
+    // exercise pool, ranked for the signed-in user's level and equipment.
+    if (_dedicatedRunningTitles.contains(sessionTitle)) {
+      return WorkoutEngine.generate(
+        sessionTitle: sessionTitle,
+        location: location,
+        homeEquipment: homeEquipment,
+        gymAccess: gymAccess,
+        sessionDuration: sessionDuration,
+      );
+    }
+
+    return ExerciseIntelligenceEngine.generate(
       sessionTitle: sessionTitle,
-      location: normalise(environment),
-      homeEquipment: effectiveHomeEquipment(
-        savedEquipment: savedHomeEquipment,
-        todayOverride: todayHomeEquipment,
-      ),
+      location: location,
+      homeEquipment: homeEquipment,
       gymAccess: gymAccess,
       sessionDuration: sessionDuration,
     );
