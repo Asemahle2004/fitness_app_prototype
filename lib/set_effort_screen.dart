@@ -163,7 +163,7 @@ class _SetEffortScreenState extends State<SetEffortScreen> {
 
   String _summary(ExerciseSetPerformance set) {
     if (set.weightKg != null && set.reps != null) {
-      return '${UnitDisplay.weight(set.weightKg!)} × ${set.reps} reps';
+      return '${UnitDisplay.formatWeight(set.weightKg!)} × ${set.reps} reps';
     }
     return set.summary;
   }
