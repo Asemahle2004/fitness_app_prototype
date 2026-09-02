@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'personal_record_celebration.dart';
 import 'personal_record_engine.dart';
 import 'run_tracking_store.dart';
+import 'unit_display.dart';
 
 class RunLogFormScreen extends StatefulWidget {
   const RunLogFormScreen({super.key});
@@ -46,22 +47,27 @@ class _RunLogFormScreenState extends State<RunLogFormScreen> {
   }
 
   Future<void> _save() async {
-    final km = double.tryParse(_distance.text.trim().replaceAll(',', '.'));
+    final enteredDistance =
+        double.tryParse(_distance.text.trim().replaceAll(',', '.'));
     final minutes =
         double.tryParse(_durationMinutes.text.trim().replaceAll(',', '.'));
-    if (km == null || km <= 0 || minutes == null || minutes <= 0) {
+    if (enteredDistance == null ||
+        enteredDistance <= 0 ||
+        minutes == null ||
+        minutes <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Enter a valid distance and duration.')),
       );
       return;
     }
 
+    final distanceKm = UnitDisplay.canonicalDistanceKm(enteredDistance);
     setState(() => _saving = true);
     final record = RunRecord(
       id: 'run_${DateTime.now().microsecondsSinceEpoch}',
       startedAt: _date,
       durationSeconds: (minutes * 60).round(),
-      distanceMeters: km * 1000,
+      distanceMeters: distanceKm * 1000,
       source: 'manual',
       notes: _notes.text.trim().isEmpty ? null : _notes.text.trim(),
     );
@@ -79,6 +85,7 @@ class _RunLogFormScreenState extends State<RunLogFormScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final distanceUnit = UnitDisplay.distanceUnit;
     return Scaffold(
       backgroundColor: const Color(0xFFF7F9FC),
       appBar: AppBar(
@@ -97,15 +104,15 @@ class _RunLogFormScreenState extends State<RunLogFormScreen> {
             ),
           ),
           const SizedBox(height: 8),
-          const Text(
-            'Use this for treadmill runs, races, or runs recorded on another watch/app.',
-            style: TextStyle(color: Color(0xFF627D98), height: 1.4),
+          Text(
+            'Use this for treadmill runs, races, or runs recorded on another watch/app. Distance is entered in $distanceUnit and stored canonically by LeanIt.',
+            style: const TextStyle(color: Color(0xFF627D98), height: 1.4),
           ),
           const SizedBox(height: 20),
           _field(
             controller: _distance,
-            label: 'Distance (km)',
-            hint: '5.00',
+            label: 'Distance ($distanceUnit)',
+            hint: UnitDisplay.isMetric ? '5.00' : '3.10',
             icon: Icons.route_outlined,
           ),
           const SizedBox(height: 14),
