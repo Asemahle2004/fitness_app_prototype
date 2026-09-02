@@ -101,7 +101,12 @@ class TrainingContextEngine {
           }
           break;
         case TrainingContextMode.noEquipment:
-          if (!_isBodyweightLike(text)) keep = false;
+          if (!_isBodyweightLike(
+            text,
+            equipment: exercise.equipment,
+          )) {
+            keep = false;
+          }
           break;
         case TrainingContextMode.travel:
           next = exercise.copyWith(
@@ -177,9 +182,34 @@ class TrainingContextEngine {
   static bool _containsAny(String text, List<String> terms) =>
       terms.any(text.contains);
 
-  static bool _isBodyweightLike(String text) {
-    return text.contains('bodyweight') ||
-        text.contains('none') ||
+  static bool _isBodyweightLike(
+    String text, {
+    required String equipment,
+  }) {
+    final equipmentText = equipment.trim().toLowerCase();
+    if (_containsAny(equipmentText, const [
+      'dumbbell',
+      'barbell',
+      'kettlebell',
+      'machine',
+      'cable',
+      'band',
+      'bench',
+      'rack',
+      'treadmill',
+      'bike',
+      'rower',
+      'plate',
+      'medicine ball',
+      'exercise ball',
+    ])) {
+      return false;
+    }
+
+    return equipmentText.isEmpty ||
+        equipmentText == 'none' ||
+        equipmentText == 'bodyweight' ||
+        text.contains('bodyweight') ||
         _containsAny(text, const [
           'push-up', 'push up', 'squat', 'lunge', 'plank', 'bridge',
           'dead bug', 'bird dog', 'calf raise', 'mobility', 'walk'
