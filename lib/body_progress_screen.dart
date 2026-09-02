@@ -8,6 +8,37 @@ import 'body_progress_engine.dart';
 import 'body_progress_form_screen.dart';
 import 'body_progress_store.dart';
 import 'progress_photo_storage.dart';
+import 'unit_display.dart';
+
+double _displayMetricValue(BodyMetric metric, double canonicalValue) {
+  switch (metric) {
+    case BodyMetric.weight:
+      return UnitDisplay.displayWeightValue(canonicalValue);
+    case BodyMetric.bodyFat:
+      return canonicalValue;
+    case BodyMetric.chest:
+    case BodyMetric.waist:
+    case BodyMetric.hips:
+    case BodyMetric.arm:
+    case BodyMetric.thigh:
+      return UnitDisplay.displayLengthValue(canonicalValue);
+  }
+}
+
+String _displayMetricUnit(BodyMetric metric) {
+  switch (metric) {
+    case BodyMetric.weight:
+      return UnitDisplay.weightUnit;
+    case BodyMetric.bodyFat:
+      return '%';
+    case BodyMetric.chest:
+    case BodyMetric.waist:
+    case BodyMetric.hips:
+    case BodyMetric.arm:
+    case BodyMetric.thigh:
+      return UnitDisplay.lengthUnit;
+  }
+}
 
 class BodyProgressScreen extends StatefulWidget {
   const BodyProgressScreen({super.key});
@@ -317,21 +348,21 @@ class _BodyProgressScreenState extends State<BodyProgressScreen> {
                       'Latest weight',
                       latestWeight?.weightKg == null
                           ? '—'
-                          : '${_number(latestWeight!.weightKg!)} kg',
+                          : UnitDisplay.formatWeight(latestWeight!.weightKg!),
                       Icons.monitor_weight_outlined,
                     ),
                     _summaryCard(
                       'Weight change',
                       weightChange == null
                           ? '—'
-                          : '${weightChange >= 0 ? '+' : ''}${_number(weightChange)} kg',
+                          : '${weightChange >= 0 ? '+' : ''}${_number(UnitDisplay.displayWeightValue(weightChange))} ${UnitDisplay.weightUnit}',
                       Icons.swap_vert_rounded,
                     ),
                     _summaryCard(
                       'Latest waist',
                       latestWaist?.waistCm == null
                           ? '—'
-                          : '${_number(latestWaist!.waistCm!)} cm',
+                          : UnitDisplay.formatLengthCm(latestWaist!.waistCm!),
                       Icons.straighten_outlined,
                     ),
                   ],
@@ -517,6 +548,7 @@ class _TrendCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final change = BodyProgressEngine.absoluteChange(points);
+    final unit = _displayMetricUnit(metric);
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -541,7 +573,7 @@ class _TrendCard extends StatelessWidget {
               ),
               if (change != null)
                 Text(
-                  '${change >= 0 ? '+' : ''}${number(change)} ${metric.unit}',
+                  '${change >= 0 ? '+' : ''}${number(_displayMetricValue(metric, change))} $unit',
                   style: const TextStyle(
                     color: Color(0xFF176B87),
                     fontWeight: FontWeight.bold,
@@ -567,11 +599,11 @@ class _TrendCard extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                '${number(points.first.value)} ${metric.unit}',
+                '${number(_displayMetricValue(metric, points.first.value))} $unit',
                 style: const TextStyle(color: Color(0xFF627D98), fontSize: 12),
               ),
               Text(
-                '${number(points.last.value)} ${metric.unit}',
+                '${number(_displayMetricValue(metric, points.last.value))} $unit',
                 style: const TextStyle(
                   color: Color(0xFF176B87),
                   fontWeight: FontWeight.bold,
@@ -674,7 +706,11 @@ class _MeasurementTile extends StatelessWidget {
     final values = <String>[];
     for (final metric in BodyMetric.values) {
       final value = entry.valueFor(metric);
-      if (value != null) values.add('${metric.label} ${number(value)} ${metric.unit}');
+      if (value != null) {
+        values.add(
+          '${metric.label} ${number(_displayMetricValue(metric, value))} ${_displayMetricUnit(metric)}',
+        );
+      }
     }
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
