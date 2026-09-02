@@ -41,7 +41,8 @@ class ExerciseIntelligenceEngine {
     final context = profile ?? TrainingProfileContext.current;
     final experience = context?.experience ?? 'Beginner';
     final goals = context?.goals ?? const <String>['Improve General Fitness'];
-    final targetMinutes = _minutes(sessionDuration ?? context?.sessionLength ?? '45 min');
+    final targetMinutes =
+        _minutes(sessionDuration ?? context?.sessionLength ?? '45 min');
     final slots = _slotsFor(sessionTitle, goals);
     final selected = <MasterExerciseDefinition>[];
 
@@ -68,15 +69,17 @@ class ExerciseIntelligenceEngine {
     }
 
     var prescriptions = selected
-        .map((definition) => _prescribe(
-              definition,
-              experience: experience,
-              goals: goals,
-              sessionTitle: sessionTitle,
-              location: location,
-              homeEquipment: homeEquipment,
-              gymAccess: gymAccess,
-            ))
+        .map(
+          (definition) => _prescribe(
+            definition,
+            experience: experience,
+            goals: goals,
+            sessionTitle: sessionTitle,
+            location: location,
+            homeEquipment: homeEquipment,
+            gymAccess: gymAccess,
+          ),
+        )
         .toList(growable: true);
 
     prescriptions = _fitToRealDuration(
@@ -219,7 +222,9 @@ class ExerciseIntelligenceEngine {
           slot.pattern != 'Mobility / Stretching') {
         continue;
       }
-      if (used.contains(MasterExerciseCatalogue.normalize(definition.name))) continue;
+      if (used.contains(MasterExerciseCatalogue.normalize(definition.name))) {
+        continue;
+      }
       final equipment = MasterExerciseCatalogue.inferredEquipment(
         definition.name,
         definition.exerciseType,
@@ -230,7 +235,9 @@ class ExerciseIntelligenceEngine {
         equipment,
       );
       if (!locations.contains(_normaliseLocation(location))) continue;
-      if (!_equipmentAllowed(equipment, location, homeEquipment, gymAccess)) continue;
+      if (!_equipmentAllowed(equipment, location, homeEquipment, gymAccess)) {
+        continue;
+      }
 
       final pattern = MasterExerciseCatalogue.inferredMovementPattern(
         definition.name,
@@ -284,29 +291,33 @@ class ExerciseIntelligenceEngine {
       definition.exerciseType,
     );
     final compound = _isCompound(pattern);
-    final buildMuscle = goals.contains('Build Muscle') || goals.contains('Gain Weight');
+    final buildMuscle =
+        goals.contains('Build Muscle') || goals.contains('Gain Weight');
     final strengthBiased = sessionTitle.toLowerCase().contains('strength');
 
     int sets;
     String reps;
     String rest;
     if (experience == 'Beginner') {
-      sets = compound ? 2 : 2;
+      sets = 2;
       reps = compound ? '8–12' : '10–15';
       rest = compound ? '120 sec' : '75 sec';
     } else if (experience == 'Advanced') {
       sets = compound ? (strengthBiased ? 4 : 3) : 3;
       reps = compound
-          ? (strengthBiased ? '5–8' : (buildMuscle ? '6–10' : '6–12'))
+          ? (strengthBiased
+              ? '5–8'
+              : (buildMuscle ? '6–10' : '6–12'))
           : '10–20';
       rest = compound ? (strengthBiased ? '180 sec' : '150 sec') : '75 sec';
     } else {
-      sets = compound ? 3 : 3;
+      sets = 3;
       reps = compound ? (buildMuscle ? '6–12' : '8–12') : '10–15';
       rest = compound ? '120 sec' : '75 sec';
     }
 
-    final muscles = MasterExerciseCatalogue.primaryMusclesFor(definition.section);
+    final muscles =
+        MasterExerciseCatalogue.primaryMusclesFor(definition.section);
     return ExercisePrescription(
       name: definition.name,
       sets: sets,
@@ -324,8 +335,9 @@ class ExerciseIntelligenceEngine {
   }) {
     if (source.isEmpty) return source;
     final targetSeconds = math.max(10, targetMinutes) * 60;
-    // Reserve time for LeanIt's guided warm-up/cool-down and ordinary station changes.
-    final prepReserve = targetMinutes <= 20 ? 4 * 60 : (targetMinutes <= 45 ? 6 * 60 : 8 * 60);
+    final prepReserve = targetMinutes <= 20
+        ? 4 * 60
+        : (targetMinutes <= 45 ? 6 * 60 : 8 * 60);
     final workBudget = math.max(5 * 60, targetSeconds - prepReserve);
     final result = <ExercisePrescription>[];
 
@@ -340,13 +352,12 @@ class ExerciseIntelligenceEngine {
       result.removeLast();
     }
 
-    // If the chosen movements fit but leave substantial unused time, add one set
-    // to high-value early movements before adding random accessories.
     var index = 0;
     while (result.isNotEmpty &&
         estimateWorkoutSeconds(result) < workBudget - 4 * 60 &&
         index < result.length * 2) {
-      final target = index % math.min(result.length, 3);
+      final protectedCount = result.length < 3 ? result.length : 3;
+      final target = index % protectedCount;
       final exercise = result[target];
       if (exercise.sets < (experience == 'Beginner' ? 3 : 5)) {
         final expanded = exercise.copyWith(sets: exercise.sets + 1);
@@ -369,10 +380,10 @@ class ExerciseIntelligenceEngine {
     required Set<String> homeEquipment,
     required String? gymAccess,
   }) {
-    for (var i = 0; i < prescriptions.length; i++) {
-      final exercise = prescriptions[i];
+    for (final exercise in prescriptions) {
       final definition = selected.firstWhere(
-        (item) => MasterExerciseCatalogue.normalize(item.name) ==
+        (item) =>
+            MasterExerciseCatalogue.normalize(item.name) ==
             MasterExerciseCatalogue.normalize(exercise.name),
       );
       final difficulty = MasterExerciseCatalogue.inferredDifficulty(
@@ -385,11 +396,14 @@ class ExerciseIntelligenceEngine {
       );
       final alternatives = MasterExerciseCatalogue.definitions
           .where((candidate) => candidate.name != definition.name)
-          .where((candidate) =>
-              MasterExerciseCatalogue.inferredMovementPattern(
-                candidate.name,
-                candidate.exerciseType,
-              ) == pattern)
+          .where(
+            (candidate) =>
+                MasterExerciseCatalogue.inferredMovementPattern(
+                  candidate.name,
+                  candidate.exerciseType,
+                ) ==
+                pattern,
+          )
           .where((candidate) {
             final equipment = MasterExerciseCatalogue.inferredEquipment(
               candidate.name,
@@ -401,7 +415,12 @@ class ExerciseIntelligenceEngine {
               equipment,
             );
             return locations.contains(_normaliseLocation(location)) &&
-                _equipmentAllowed(equipment, location, homeEquipment, gymAccess);
+                _equipmentAllowed(
+                  equipment,
+                  location,
+                  homeEquipment,
+                  gymAccess,
+                );
           })
           .take(5)
           .map((item) => item.name)
@@ -412,7 +431,8 @@ class ExerciseIntelligenceEngine {
         exerciseName: exercise.name,
         role: pattern,
         difficulty: difficulty,
-        startingLoadGuidance: _startingLoadGuidance(experience, exercise.equipment),
+        startingLoadGuidance:
+            _startingLoadGuidance(experience, exercise.equipment),
         estimatedSeconds: estimateExerciseSeconds(exercise),
         alternatives: alternatives,
       );
@@ -452,25 +472,36 @@ class ExerciseIntelligenceEngine {
       }
       return true;
     }
-    final available = homeEquipment.map((item) => item.toLowerCase()).join(' ');
+    final available =
+        homeEquipment.map((item) => item.toLowerCase()).join(' ');
     if (available.isEmpty) return false;
-    if (joined.contains('dumbbell') && available.contains('dumbbell')) return true;
-    if (joined.contains('kettlebell') && available.contains('kettlebell')) return true;
+    if (joined.contains('dumbbell') && available.contains('dumbbell')) {
+      return true;
+    }
+    if (joined.contains('kettlebell') && available.contains('kettlebell')) {
+      return true;
+    }
     if (joined.contains('barbell') && available.contains('barbell')) return true;
     if (joined.contains('band') && available.contains('band')) return true;
     if (joined.contains('pull-up') && available.contains('pull-up')) return true;
     if (joined.contains('bench') && available.contains('bench')) return true;
     if (joined.contains('jump rope') &&
-        (available.contains('rope') || available.contains('skipping'))) return true;
+        (available.contains('rope') || available.contains('skipping'))) {
+      return true;
+    }
     return false;
   }
 
   static int _difficultyScore(String difficulty, String experience) {
     if (experience == 'Beginner') {
-      return difficulty == 'Beginner' ? 80 : (difficulty == 'Intermediate' ? 20 : -100);
+      return difficulty == 'Beginner'
+          ? 80
+          : (difficulty == 'Intermediate' ? 20 : -100);
     }
     if (experience == 'Advanced') {
-      return difficulty == 'Advanced' ? 50 : (difficulty == 'Intermediate' ? 45 : 20);
+      return difficulty == 'Advanced'
+          ? 50
+          : (difficulty == 'Intermediate' ? 45 : 20);
     }
     return difficulty == 'Intermediate' ? 70 : 35;
   }
@@ -478,10 +509,14 @@ class ExerciseIntelligenceEngine {
   static int _stabilityScore(String name, String experience) {
     final value = name.toLowerCase();
     if (experience != 'Beginner') return 0;
-    if (value.contains('machine') || value.contains('leg press') || value.contains('goblet')) {
+    if (value.contains('machine') ||
+        value.contains('leg press') ||
+        value.contains('goblet')) {
       return 25;
     }
-    if (value.contains('clean') || value.contains('handstand') || value.contains('sissy')) {
+    if (value.contains('clean') ||
+        value.contains('handstand') ||
+        value.contains('sissy')) {
       return -80;
     }
     return 0;
@@ -509,7 +544,10 @@ class ExerciseIntelligenceEngine {
 
   static int _workSeconds(String reps) {
     if (reps.toLowerCase().contains('sec')) return _durationSeconds(reps);
-    final numbers = RegExp(r'\d+').allMatches(reps).map((m) => int.parse(m.group(0)!)).toList();
+    final numbers = RegExp(r'\d+')
+        .allMatches(reps)
+        .map((match) => int.parse(match.group(0)!))
+        .toList();
     final repsTarget = numbers.isEmpty ? 10 : numbers.last.clamp(1, 30);
     return (repsTarget * 3).clamp(20, 100);
   }
