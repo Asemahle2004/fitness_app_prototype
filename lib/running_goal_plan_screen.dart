@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'live_run_screen.dart';
 import 'running_distance_engine.dart';
+import 'running_weather_service.dart';
 
 class RunningGoalPlanScreen extends StatefulWidget {
   const RunningGoalPlanScreen({super.key});
@@ -17,24 +18,32 @@ class _RunningGoalPlanScreenState extends State<RunningGoalPlanScreen> {
   int _weeks = 10;
   final _recentKm = TextEditingController();
   final _benchmarkDistance = TextEditingController();
-  final _benchmarkMinutes = TextEditingController();
+  final _benchmarkTime = TextEditingController();
   RunningTrainingPlan? _plan;
+  RunningWeatherConditions? _weather;
+  bool _loadingWeather = false;
 
   @override
   void dispose() {
     _recentKm.dispose();
     _benchmarkDistance.dispose();
-    _benchmarkMinutes.dispose();
+    _benchmarkTime.dispose();
     super.dispose();
   }
 
   void _generate() {
-    final benchmarkKm = double.tryParse(
+    final benchmarkDistance = double.tryParse(
       _benchmarkDistance.text.trim().replaceAll(',', '.'),
     );
-    final benchmarkMinutes = double.tryParse(
-      _benchmarkMinutes.text.trim().replaceAll(',', '.'),
+    final benchmarkTime = double.tryParse(
+      _benchmarkTime.text.trim().replaceAll(',', '.'),
     );
+    final distanceMeters = benchmarkDistance == null
+        ? null
+        : (_goal.isSprint ? benchmarkDistance : benchmarkDistance * 1000);
+    final seconds = benchmarkTime == null
+        ? null
+        : (_goal.isSprint ? benchmarkTime : benchmarkTime * 60);
     setState(() {
       _plan = RunningDistanceEngine.generate(
         RunningPlanConfig(
@@ -44,13 +53,37 @@ class _RunningGoalPlanScreenState extends State<RunningGoalPlanScreen> {
           totalWeeks: _weeks,
           recentWeeklyKm:
               double.tryParse(_recentKm.text.trim().replaceAll(',', '.')) ?? 0,
-          benchmarkDistanceMeters:
-              benchmarkKm == null ? null : benchmarkKm * 1000,
-          benchmarkSeconds:
-              benchmarkMinutes == null ? null : benchmarkMinutes * 60,
+          benchmarkDistanceMeters: distanceMeters,
+          benchmarkSeconds: seconds,
         ),
       );
     });
+  }
+
+  Future<void> _checkWeather() async {
+    if (_loadingWeather) return;
+    setState(() => _loadingWeather = true);
+    try {
+      final weather = await const RunningWeatherService().currentForDevice();
+      if (!mounted) return;
+      setState(() => _weather = weather);
+      if (weather == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Current weather is unavailable. Check location permission/service or try again later.',
+            ),
+          ),
+        );
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not load current running weather.')),
+      );
+    } finally {
+      if (mounted) setState(() => _loadingWeather = false);
+    }
   }
 
   Future<void> _start(RunningPlannedSession session) async {
@@ -101,6 +134,9 @@ class _RunningGoalPlanScreenState extends State<RunningGoalPlanScreen> {
                       _weeks = goal.minimumRecommendedWeeks;
                       _days = goal.recommendedDaysPerWeek;
                       _plan = null;
+                      _weather = null;
+                      _benchmarkDistance.clear();
+                      _benchmarkTime.clear();
                     });
                   },
                 );
@@ -184,25 +220,29 @@ class _RunningGoalPlanScreenState extends State<RunningGoalPlanScreen> {
                 TextField(
                   controller: _benchmarkDistance,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(
-                    labelText: 'Benchmark distance (km)',
-                    hintText: 'e.g. 5',
+                  decoration: InputDecoration(
+                    labelText: _goal.isSprint
+                        ? 'Benchmark distance (metres)'
+                        : 'Benchmark distance (km)',
+                    hintText: _goal.isSprint ? 'e.g. 100' : 'e.g. 5',
                   ),
                 ),
                 const SizedBox(height: 10),
                 TextField(
-                  controller: _benchmarkMinutes,
+                  controller: _benchmarkTime,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(
-                    labelText: 'Benchmark time (minutes)',
-                    hintText: 'e.g. 28.5',
+                  decoration: InputDecoration(
+                    labelText: _goal.isSprint
+                        ? 'Benchmark time (seconds)'
+                        : 'Benchmark time (minutes)',
+                    hintText: _goal.isSprint ? 'e.g. 13.2' : 'e.g. 28.5',
                   ),
                 ),
                 const SizedBox(height: 6),
                 const Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    'For 100–400 m athletes, short-event predictions are kept separate from endurance predictions instead of extrapolating a sprint into a marathon.',
+                    'Short-event predictions stay inside the sprint family instead of extrapolating a 100 m performance into marathon pace.',
                     style: TextStyle(fontSize: 12, color: Color(0xFF829AB1)),
                   ),
                 ),
@@ -218,6 +258,18 @@ class _RunningGoalPlanScreenState extends State<RunningGoalPlanScreen> {
           if (_plan != null) ...[
             const SizedBox(height: 24),
             _planOverview(_plan!),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: _loadingWeather ? null : _checkWeather,
+              icon: const Icon(Icons.wb_sunny_outlined),
+              label: Text(
+                _loadingWeather ? 'CHECKING WEATHER…' : 'CHECK LIVE RUNNING WEATHER',
+              ),
+            ),
+            if (_weather != null) ...[
+              const SizedBox(height: 12),
+              _weatherCard(_weather!),
+            ],
             const SizedBox(height: 18),
             ..._plan!.weeks.map(_weekCard),
           ],
@@ -228,6 +280,14 @@ class _RunningGoalPlanScreenState extends State<RunningGoalPlanScreen> {
 
   Widget _planOverview(RunningTrainingPlan plan) {
     final zones = plan.paceZones;
+    final prediction = plan.config.benchmarkDistanceMeters == null ||
+            plan.config.benchmarkSeconds == null
+        ? null
+        : RunningDistanceEngine.predict(
+            benchmarkDistanceMeters: plan.config.benchmarkDistanceMeters!,
+            benchmarkSeconds: plan.config.benchmarkSeconds!,
+            goal: plan.config.goal,
+          );
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -257,12 +317,69 @@ class _RunningGoalPlanScreenState extends State<RunningGoalPlanScreen> {
               style: const TextStyle(color: Colors.white70, fontSize: 12),
             ),
           ],
+          if (prediction != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Model estimate for ${prediction.goal.label}: ${_duration(prediction.predictedSeconds)} • ${prediction.confidence.toLowerCase()} confidence',
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+          ],
           const SizedBox(height: 12),
           ...plan.coachingNotes.map(
             (note) => Padding(
               padding: const EdgeInsets.only(bottom: 5),
               child: Text('• $note', style: const TextStyle(color: Colors.white70)),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _weatherCard(RunningWeatherConditions weather) {
+    final adjustment = weather.adjustmentFor(_goal);
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF7E6),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFFFD58A)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.thermostat_rounded, color: Color(0xFF9A6700)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '${weather.temperatureC.toStringAsFixed(1)}°C • ${weather.humidityPercent.round()}% humidity'
+                  '${weather.windKmh == null ? '' : ' • ${weather.windKmh!.round()} km/h wind'}',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            adjustment.headline,
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF6B4F00),
+            ),
+          ),
+          const SizedBox(height: 5),
+          ...adjustment.notes.map(
+            (note) => Padding(
+              padding: const EdgeInsets.only(bottom: 3),
+              child: Text('• $note', style: const TextStyle(fontSize: 12)),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Weather: ${weather.source}',
+            style: const TextStyle(fontSize: 11, color: Color(0xFF829AB1)),
           ),
         ],
       ),
@@ -355,6 +472,16 @@ class _RunningGoalPlanScreenState extends State<RunningGoalPlanScreen> {
     final min = seconds ~/ 60;
     final sec = seconds % 60;
     return '$min:${sec.toString().padLeft(2, '0')}';
+  }
+
+  static String _duration(int seconds) {
+    final hours = seconds ~/ 3600;
+    final minutes = (seconds % 3600) ~/ 60;
+    final secs = seconds % 60;
+    if (hours > 0) {
+      return '$hours:${minutes.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
+    }
+    return '$minutes:${secs.toString().padLeft(2, '0')}';
   }
 
   static IconData _icon(RunningSessionType type) => switch (type) {
