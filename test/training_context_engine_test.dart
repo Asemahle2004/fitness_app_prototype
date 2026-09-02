@@ -20,7 +20,7 @@ GeneratedWorkout workout() => const GeneratedWorkout(
           rest: '75 sec',
           equipment: 'Dumbbells, Bench',
           target: 'Chest, triceps',
-          supersetGroup: 'A',
+          supersetId: 'A',
         ),
         ExercisePrescription(
           name: 'Goblet Squat',
@@ -29,7 +29,7 @@ GeneratedWorkout workout() => const GeneratedWorkout(
           rest: '75 sec',
           equipment: 'Dumbbell',
           target: 'Quads, glutes',
-          isDropSet: true,
+          dropSetCount: 1,
         ),
       ],
     );
@@ -67,8 +67,14 @@ void main() {
       mode: TrainingContextMode.travel,
     );
     expect(result.workout.exercises.first.sets, lessThan(4));
-    expect(result.workout.exercises.every((item) => !item.isDropSet), isTrue);
-    expect(result.workout.exercises.every((item) => item.supersetGroup == null), isTrue);
+    expect(
+      result.workout.exercises.every((item) => item.dropSetCount == 0),
+      isTrue,
+    );
+    expect(
+      result.workout.exercises.every((item) => item.supersetId == null),
+      isTrue,
+    );
   });
 
   test('not feeling 100 with low readiness becomes recovery first', () {
