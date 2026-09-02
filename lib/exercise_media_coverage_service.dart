@@ -66,7 +66,7 @@ class ExerciseMediaCoverageReport {
 /// The audit deliberately requests male and female separately because LeanIt's
 /// target is two demonstration variants for every master exercise. A provider
 /// exercise ID may be cached by the backend mapping layer, but short-lived
-/// media URLs remain memory-only per MuscleWiki's media rules.
+/// media URLs remain memory-only per provider media rules.
 class ExerciseMediaCoverageService {
   final ExerciseMediaResolver resolver;
 
@@ -89,10 +89,10 @@ class ExerciseMediaCoverageService {
   }) async {
     final source = (definitions ?? MasterExerciseCatalogue.definitions).toList();
     final results = <ExerciseMediaCoverageItem>[];
-    final safeBatch = batchSize.clamp(1, 8);
+    final safeBatch = batchSize.clamp(1, 8).toInt();
 
     for (var start = 0; start < source.length; start += safeBatch) {
-      final end = (start + safeBatch).clamp(0, source.length);
+      final end = (start + safeBatch).clamp(0, source.length).toInt();
       final batch = source.sublist(start, end);
       final resolved = await Future.wait(
         batch.map((definition) async {
