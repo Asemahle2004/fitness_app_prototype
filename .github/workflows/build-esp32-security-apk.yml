@@ -1,0 +1,73 @@
+name: Build ESP32 Security APK
+
+on:
+  push:
+    branches:
+      - esp32-security-app
+    paths:
+      - "app_src/**"
+      - ".github/workflows/build-esp32-security-apk.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Show Flutter version
+        run: flutter --version
+
+      - name: Generate clean Android project
+        run: |
+          rm -rf buildapp
+          flutter create --platforms=android --project-name esp32_secure --org com.asemahle buildapp
+
+      - name: Install app source
+        run: |
+          cp app_src/main.dart buildapp/lib/main.dart
+          cp app_src/pubspec.yaml buildapp/pubspec.yaml
+          cp app_src/AndroidManifest.xml buildapp/android/app/src/main/AndroidManifest.xml
+          mkdir -p buildapp/android/app/src/main/kotlin/com/asemahle/esp32_secure
+          cp app_src/MainActivity.kt buildapp/android/app/src/main/kotlin/com/asemahle/esp32_secure/MainActivity.kt
+          rm -rf buildapp/test
+
+      - name: Set Android minimum SDK
+        run: |
+          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 24/' buildapp/android/app/build.gradle.kts || true
+          grep -n "minSdk" buildapp/android/app/build.gradle.kts || true
+
+      - name: Resolve packages
+        working-directory: buildapp
+        run: flutter pub get
+
+      - name: Analyze
+        working-directory: buildapp
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Build release APK
+        working-directory: buildapp
+        run: flutter build apk --release
+
+      - name: Rename APK
+        run: cp buildapp/build/app/outputs/flutter-apk/app-release.apk ESP32-Secure-v1.0.apk
+
+      - name: Upload installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ESP32-Secure-APK
+          path: ESP32-Secure-v1.0.apk
+          if-no-files-found: error
+          retention-days: 30
